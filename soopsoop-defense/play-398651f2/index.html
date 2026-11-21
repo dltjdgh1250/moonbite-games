@@ -176,7 +176,7 @@
 </script><script>// Forest Guardians — auto-battle defense simulation (deterministic, no DOM). v0.3 prototype (8 waves)
 (function (root) {
 'use strict';
-const VERSION = '0.21.0';
+const VERSION = '0.22.0';
 // ---------- PRNG: PCG32 ----------
 const M64 = (1n << 64n) - 1n, MUL = 6364136223846793005n;
 function PCG(seed, seq) { this.inc = ((BigInt(seq >>> 0) << 1n) | 1n) & M64; this.s = 0n; this.u32(); this.s = (this.s + BigInt(seed >>> 0) + (BigInt(seed >>> 0) << 32n)) & M64; this.u32(); }
@@ -1256,6 +1256,9 @@ const W = 450, H = 800, FS = 1.25, FX0 = 0, FY0 = 56;
 const cv = document.getElementById('c'), cx = cv.getContext('2d');
 let DPR = 1, scale = 1;
 let DPR_CAP = 2, QL = 0; try { DPR_CAP = +(localStorage.getItem('fg-dpr') || 2) || 2; QL = +(localStorage.getItem('fg-ql') || 0) || 0; } catch (e) {}
+// v0.22 phone heat: touch devices render at most 1.5x and 30 fps by default (120 Hz phones were drawing 120 fps); sim speed is unaffected (fixed STEP accumulator)
+const COARSE = (() => { try { return matchMedia('(pointer: coarse)').matches; } catch (e) { return false; } })(); if (COARSE) DPR_CAP = Math.min(DPR_CAP, 1.5);
+let FPS = COARSE ? 30 : 60; try { const v = +localStorage.getItem('fg-fps'); if (v === 30 || v === 60) FPS = v; } catch (e) {}
 const DPR_MIN = () => Math.min(window.devicePixelRatio || 1, 1.5); // never below 1.5x on hi-dpi screens (sharpness floor)
 function fit() { DPR = Math.min(window.devicePixelRatio || 1, DPR_CAP); scale = Math.min(window.innerWidth / W, window.innerHeight / H); cv.style.width = W * scale + 'px'; cv.style.height = H * scale + 'px'; cv.width = Math.round(W * scale * DPR); cv.height = Math.round(H * scale * DPR); }
 window.addEventListener('resize', fit);
@@ -1319,7 +1322,7 @@ const PX = e => SX(e.x, e.y), PY = e => SY(e.x, e.y);
 function BR(i) { const n = g ? g.bench.length : 3, gap = 6, w = (438 - 112 - gap * (n - 1)) / n; return { x: 112 + i * (w + gap), y: 664, w, h: 62 }; }
 const TRASH = { x: 12, y: 664, w: 90, h: 62 };
 const BTN_SCAN = { x: 12, y: 734, w: 112, h: 54 }, BTN_DEL = { x: 132, y: 734, w: 156, h: 54 }, BTN_START = { x: 296, y: 734, w: 142, h: 54 };
-const BTN_MYTH = { x: 10, y: 64, w: 96, h: 36 }, BTN_BOX = { x: 112, y: 64, w: 136, h: 36 }, MY_ROW = i => ({ x: 14, y: 128 + i * 88, w: 422, h: 82 }), MY_BTN = i => ({ x: 340, y: 150 + i * 88, w: 88, h: 40 }), MY_X = { x: 392, y: 70, w: 46, h: 40 };
+const BTN_MYTH = { x: 10, y: 64, w: 96, h: 36 }, BTN_BOX = { x: 112, y: 64, w: 136, h: 36 }, MY_ROW = i => ({ x: 8, y: 126 + i * 90, w: 434, h: 84 }), MY_BTN = i => ({ x: 340, y: 148 + i * 90, w: 96, h: 40 }), MY_X = { x: 392, y: 70, w: 46, h: 40 };
 let mythOpen = false, bossMsg = null;
 const BTN_LANG = { x: 10, y: 8, w: 72, h: 28 }, BTN_SND = { x: 322, y: 8, w: 52, h: 28 }, BTN_SPD = { x: 382, y: 8, w: 58, h: 28 };
 const cellRect = i => { const p = g.cellPos(i), X = SX(p.x, p.y), Y = SY(p.x, p.y); return { x: X - 22, y: Y - 26, w: 44, h: 54, cx: X, cy: Y }; };
@@ -1489,8 +1492,7 @@ function draw(dt) {
       cx.save();
       if (f.t === 'skFall' && k < .35) { const q = k / .35, fy = Y - 150 * (1 - q), fx = X + 40 * (1 - q); cx.globalCompositeOperation = 'lighter'; for (let i = 0; i < 6; i++) glowDot(fx + i * 6, fy - i * 22, (f.big ? 12 : 8) - i, rgb, .5 - i * .07); glowDot(fx, fy, f.big ? 16 : 11, '255,255,235', .95); }
       else { const kk = f.t === 'skFall' ? (k - .35) / .65 : k, RR = f.t === 'skFall' ? f.r * KX * (0.3 + 0.7 * out3(kk)) : R1, aa = f.t === 'skFall' ? Math.min(1, (1 - kk) * 1.4) : a;
-        const gr = cx.createRadialGradient(X, Y - 6, RR * .2, X, Y - 6, RR); gr.addColorStop(0, 'rgba(' + rgb + ',0)'); gr.addColorStop(.75, 'rgba(' + rgb + ',' + (.18 * aa) + ')'); gr.addColorStop(1, 'rgba(' + rgb + ',' + (.45 * aa) + ')');
-        cx.fillStyle = gr; cx.beginPath(); cx.ellipse(X, Y - 6, RR * 1.05, RR * .6, 0, 0, 7); cx.fill();
+        cx.beginPath(); cx.ellipse(X, Y - 6, RR * 1.05, RR * .6, 0, 0, 7); glowImg(glowSpr('ring' + rgb, [[0, 'rgba(' + rgb + ',0)'], [.75, 'rgba(' + rgb + ',.4)'], [.999, 'rgba(' + rgb + ',1)'], [1, 'rgba(' + rgb + ',0)']], .2), X, Y - 6, RR * 1.05, RR * .6, .45 * aa);
         cx.globalCompositeOperation = 'lighter'; cx.strokeStyle = 'rgba(' + rgb + ',' + aa + ')'; cx.lineWidth = (f.big ? 6 : 4) * (1 - kk * .6); cx.stroke(); cx.strokeStyle = 'rgba(255,255,240,' + (.8 * aa) + ')'; cx.lineWidth = 1.5; cx.stroke();
         if (f.t === 'skAura' && QL < 1) for (let q = 0; q < 8; q++) { const an = q / 8 * 6.283 + clock * 2, rr2 = RR * (.4 + .5 * ((q * 37 % 10) / 10)); glowDot(X + Math.cos(an) * rr2, Y - 6 - kk * 30 - q % 3 * 6 + Math.sin(an) * rr2 * .5, 4, rgb, .8 * aa); }
         if (f.t === 'skFall' || (f.t === 'skRing' && f.big)) { glowDot(X, Y - 10, RR * .55, '255,250,220', .6 * aa); for (let q = 0; q < (QL >= 1 ? 0 : 10); q++) { const an = q * .628, d = RR * out3(kk); glowDot(X + Math.cos(an) * d, Y - 8 + Math.sin(an) * d * .55 - 10 * kk, 3.5, rgb, aa); } }
@@ -1526,7 +1528,7 @@ function draw(dt) {
   else { combo.n = 0; combo.lastK = null; }
   if (combo.n >= 5 && clock - combo.t <= 1.5) { combo.pop = Math.max(0, combo.pop - dt); const a = Math.min(1, (1.5 - (clock - combo.t)) * 2), sc2 = 1 + combo.pop * 2; cx.globalAlpha = a; txt(combo.n + ' COMBO', W - 18, FY0 + 120, Math.round(22 * sc2), combo.n >= 15 ? '#ff7a3a' : combo.n >= 10 ? '#ffd84d' : '#fff6dc', 'r', 900, 5); cx.globalAlpha = 1; }
   cx.restore();
-  if (g.phase === 'combat' && g.core > 0 && g.core <= (g.coreMax || CFG.coreHp) * 0.3) { const a = .25 + .2 * Math.sin(clock * 7); const gr = cx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * .35, W / 2, H / 2, Math.max(W, H) * .75); gr.addColorStop(0, 'rgba(255,0,0,0)'); gr.addColorStop(1, 'rgba(220,20,20,' + a + ')'); cx.fillStyle = gr; cx.fillRect(0, 0, W, H); }
+  if (g.phase === 'combat' && g.core > 0 && g.core <= (g.coreMax || CFG.coreHp) * 0.3) { const a = .25 + .2 * Math.sin(clock * 7); if (!GLC.vig) { const c = GLC.vig = document.createElement('canvas'); c.width = W / 4; c.height = H / 4; const q = c.getContext('2d'), gg = q.createRadialGradient(W / 8, H / 8, Math.min(W, H) * .35 / 4, W / 8, H / 8, Math.max(W, H) * .75 / 4); gg.addColorStop(0, 'rgba(255,0,0,0)'); gg.addColorStop(1, 'rgba(220,20,20,1)'); q.fillStyle = gg; q.fillRect(0, 0, c.width, c.height); } const ga = cx.globalAlpha; cx.globalAlpha = ga * a; cx.drawImage(GLC.vig, 0, 0, W, H); cx.globalAlpha = ga; }
   // HUD
   const hud = cx.createLinearGradient(0, 0, 0, FY0); hud.addColorStop(0, '#3f6b2a'); hud.addColorStop(1, '#2f5420'); cx.fillStyle = hud; cx.fillRect(0, 0, W, FY0);
   btn(BTN_LANG, 'II', true, '#6d8f3e', 14); btn(BTN_SND, muted ? '🔇' : '🔊', true, '#6d8f3e', 13); if (speed > 1 && ES && !ECON.speedOk(ES, Date.now())) speed = 1; btn(BTN_SPD, speed > 1 ? speed + 'x' : (ES && !ECON.speedOk(ES, Date.now()) ? (PLAY ? '🎁2x' : '📺2x') : '1x'), true, speed > 1 ? '#f08a24' : '#6d8f3e', speed > 1 || !ES || ECON.speedOk(ES, Date.now()) ? 14 : 11);
@@ -1552,6 +1554,7 @@ function draw(dt) {
     cx.strokeStyle = 'rgba(255,255,255,.75)'; cx.setLineDash([6, 5]); cx.lineWidth = 2; cx.beginPath(); for (let q = 0; q <= 32; q++) { const an = q / 32 * Math.PI * 2, px = SX(cp.x + Math.cos(an) * R, cp.y + Math.sin(an) * R), py = SY(cp.x + Math.cos(an) * R, cp.y + Math.sin(an) * R); if (!q) cx.moveTo(px, py); else cx.lineTo(px, py); } cx.stroke(); cx.setLineDash([]);
   } }
   if (drag && drag.moved) { const u = g.unitAt(drag.src); sprite(u.k, drag.x, drag.y - 10, 60, { alpha: .92, frame: Math.floor(clock * 8) }); stars(u.star, drag.x, drag.y - 46); if (drag.kind && drag.kind !== 'none') txt(t(drag.kind), drag.x, drag.y - 64, 16, drag.kind === 'merge' ? '#ffd84d' : drag.kind === 'full' ? '#ff6b6b' : '#fff', 'c', 800, 4); if (drag.kind === 'merge' && u.star === FG.CFG.comboStar && mythIng18(u.k)) txt(L === 'ko' ? '⚠ ★3이 되면 신화 재료로 못 써요' : '⚠ ★3 can’t be a mythic ingredient', drag.x, drag.y - 84, 12, '#ff9a8a', 'c', 800, 3); }
+  if (prep && (!g.offer || offerPeek)) drawIngBadges22();
   if (tip && !drag) { const u = g.unitAt(tip.ref); if (u) drawTip(u); else tip = null; }
   if (!prep && selA != null) { const a = g.allies.find(u => u.id === selA && !u.dead); if (a && a.ref) drawTip(a.ref); }
   if (prep && !g.offer) { const n = g.combinable().length; btn(BTN_MYTH, '🔮 ' + t('myth'), true, n ? '#c0392b' : '#6d4c8f', 14); if (n) { cx.save(); cx.globalAlpha = .5 + .5 * Math.sin(clock * 6); cx.strokeStyle = '#ffd84d'; cx.lineWidth = 3; rr(BTN_MYTH.x - 2, BTN_MYTH.y - 2, BTN_MYTH.w + 4, BTN_MYTH.h + 4, 16); cx.stroke(); cx.restore(); }
@@ -1578,7 +1581,7 @@ const rigOk = k => window.RIG && RIG.has(k), ICON_ST = {};
 function rigAt(key, k, x, y, h, face, o) { const st = ICON_ST[key] || (ICON_ST[key] = { seed: key.length * .37 }); if (st._c !== clock) { st._c = clock; RIG.update(st, fdt); } if (o && o.walk) st.walk = true; RIG.draw(cx, k, st, x, y, h, face, Object.assign({ clock, dt: fdt, noShadow: 1 }, o || {})); }
 const RCLS = k => { const C = RIGA[RIG.key(k)].cfg; return C.cls || C.type; };
 const RIGH = k => FG.ENEMIES[k] && FG.ENEMIES[k].boss ? 96 : k === 'wolfclone' ? 70 : (RCLS(k) === 'big' ? 64 : RCLS(k) === 'quad' ? 46 : 54);
-function rigGlow(col) { return (tp, ch) => { cx.save(); cx.globalCompositeOperation = 'lighter'; const r = 6 + 16 * ch, gg = cx.createRadialGradient(tp.x, tp.y, 0, tp.x, tp.y, r); gg.addColorStop(0, 'rgba(' + col + ',.95)'); gg.addColorStop(1, 'rgba(' + col + ',0)'); cx.fillStyle = gg; cx.beginPath(); cx.arc(tp.x, tp.y, r, 0, 7); cx.fill(); cx.restore(); }; }
+function rigGlow(col) { return (tp, ch) => { cx.save(); cx.globalCompositeOperation = 'lighter'; const r = 6 + 16 * ch; glowImg(glowSpr('g' + col, [[0, 'rgba(' + col + ',1)'], [1, 'rgba(' + col + ',0)']]), tp.x, tp.y, r, r, .95); cx.restore(); }; }
 function rigTick(e, st, combat) { const sp = combat ? speed : 1; RIG.update(st, fdt * sp); if (!combat) return;
   const [D, rel] = RIG.timing(e.k), s = Math.min(1.25, Math.max(.45, (0.9 / Math.max(.3, e.aps || 1)) / D)); st.atScale = s;
   if (e.dead) { if (st.dieT == null) { st.dieT = 0; st.at = null; } return; }
@@ -1605,7 +1608,7 @@ function drawEnt(e) {
   let face = isE ? -1 : 1; if (e.tgt && !e.tgt.dead) face = PX(e.tgt) >= X0 ? 1 : -1;
   if (rigOk(e.k)) { const st = e._rs || (e._rs = { seed: e.id * .7 }); rigTick(e, st, true); if (e.dead && st.dieT > 1.75) return; if (!e.dead && e.face != null) st.face = face; else face = st.face || face;
     const sclR = isE ? (e.elite ? 1.15 : 1) : 1 + (e.star - 1) * .1, hh = RIGH(e.k) * sclR, al = (st.dieT != null ? Math.max(0, 1 - Math.max(0, st.dieT - 1.2) / .55) : 1) * (e.clone ? .62 : 1);
-    if (!e.dead && e.elite) { cx.save(); cx.globalCompositeOperation = 'lighter'; const ga = .35 + .2 * Math.sin(clock * 6 + e.id); const gr = cx.createRadialGradient(X0, Y0 - hh * .45, 4, X0, Y0 - hh * .45, hh * .8); gr.addColorStop(0, 'rgba(255,210,80,' + ga + ')'); gr.addColorStop(1, 'rgba(255,170,40,0)'); cx.fillStyle = gr; cx.fillRect(X0 - hh, Y0 - hh * 1.3, hh * 2, hh * 1.6); cx.restore(); }
+    if (!e.dead && e.elite) { cx.save(); cx.globalCompositeOperation = 'lighter'; const ga = .35 + .2 * Math.sin(clock * 6 + e.id); glowImg(glowSpr('elite', [[0, 'rgba(255,210,80,1)'], [1, 'rgba(255,170,40,0)']]), X0, Y0 - hh * .45, hh * .8, hh * .8, ga); cx.restore(); }
     if (!e.dead) { if (!isE) gradeDisc(X0, Y0, UNITS[e.k].tier, sclR); if (QL < 2 || e.boss) shadow(X0, Y0, (e.boss ? 26 : 15) * sclR); }
     if (!e.dead) drawStatus(e, X0, Y0);
     RIG.draw(cx, e.k, st, X0, Y0, hh, face, { clock, dt: fdt * (g.phase === 'combat' ? speed : 1), flash: e.flash, alpha: al, noShadow: 1, glow: rigGlow((RIGA[RIG.key(e.k)].cfg.col) || '255,236,180') });
@@ -1647,7 +1650,10 @@ function hpBar(e, X0, Y0, top, isE) {
 }
 const SHOT_COL = { penguin: '150,220,255', frog: '120,230,90', owl: '190,130,255', mushroom: '200,150,255', water: '90,180,255', firefly: '255,236,110', flower: '255,150,210', sage: '140,255,200', gumiho: '215,190,255', orb: '215,190,255', deer: '160,255,210', axo: '255,170,220', wolf: '170,110,230', bat: '170,110,230', bee: '255,210,80', elder: '150,230,120' };
 const out3 = q => 1 - Math.pow(1 - q, 3), hex2rgb = c => { if (!c) return '255,240,200'; if (c[0] !== '#') { const m = c.match(/\d+/g); return m ? m.slice(0, 3).join(',') : '255,240,200'; } const h = c.length === 4 ? c.slice(1).split('').map(x => x + x).join('') : c.slice(1, 7); return parseInt(h.slice(0, 2), 16) + ',' + parseInt(h.slice(2, 4), 16) + ',' + parseInt(h.slice(4, 6), 16); };
-function glowDot(x, y, r, col, a) { const gg = cx.createRadialGradient(x, y, 0, x, y, r); gg.addColorStop(0, 'rgba(' + col + ',' + a + ')'); gg.addColorStop(.45, 'rgba(' + col + ',' + a * .45 + ')'); gg.addColorStop(1, 'rgba(' + col + ',0)'); cx.fillStyle = gg; cx.beginPath(); cx.arc(x, y, r, 0, 7); cx.fill(); }
+const GLC = {}; // v0.22: pre-rendered radial glows (one 64px canvas per colour/stop set) instead of createRadialGradient every frame (phone heat)
+function glowSpr(key, stops, r0) { let c = GLC[key]; if (c) return c; c = GLC[key] = document.createElement('canvas'); c.width = c.height = 64; const q = c.getContext('2d'), gg = q.createRadialGradient(32, 32, (r0 || 0) * 32, 32, 32, 32); for (const st of stops) gg.addColorStop(st[0], st[1]); q.fillStyle = gg; q.fillRect(0, 0, 64, 64); return c; }
+function glowImg(c, x, y, rx, ry, a) { if (a <= 0 || rx <= 0 || ry <= 0) return; const ga = cx.globalAlpha; cx.globalAlpha = ga * Math.min(1, a); cx.drawImage(c, x - rx, y - ry, rx * 2, ry * 2); cx.globalAlpha = ga; }
+function glowDot(x, y, r, col, a) { glowImg(glowSpr('d' + col, [[0, 'rgba(' + col + ',1)'], [.45, 'rgba(' + col + ',.45)'], [1, 'rgba(' + col + ',0)']]), x, y, r, r, a); }
 function drawShot(s) {
   const x = SX(s.x, s.y), y = SY(s.x, s.y) - 18, tx = PX(s.v), ty = PY(s.v) - 18, ang = Math.atan2(ty - y, tx - x);
   if (!s._s) { s._s = 1; sfx('shoot', s.k); }
@@ -1679,19 +1685,28 @@ function mythIng18(k) { return Object.keys(FG.RECIPES).some(m => !g.myth[m] && F
 function mythWhy18(m) { const ko = L === 'ko', all = [...g.board, ...g.bench].filter(Boolean), need = FG.CFG.comboStar; const st = FG.RECIPES[m].map(k => { const mine = all.filter(u => u.k === k); return mine.some(u => u.star === need) ? 'ok' : mine.some(u => u.star > need) ? 'over' : 'miss'; });
   if (st.every(x => x === 'ok')) return g.gold < FG.CFG.comboCost ? (ko ? '도토리 부족' : 'Need more acorns') : '';
   if (st.includes('over') && !st.includes('miss')) return ko ? '★3 재료는 못 써요' : '★3 can’t be used'; if (st.includes('over')) return ko ? '재료 부족 · ★3 불가' : 'Missing · ★3 unusable'; return ko ? '★2 재료 부족' : 'Need ★2 ingredients'; }
+function ingSt22(k) { const mine = [...g.board, ...g.bench].filter(u => u && u.k === k), need = FG.CFG.comboStar, n1 = mine.filter(u => u.star === need - 1).length;
+  if (mine.some(u => u.star === need)) return { s: 'ok', n1 }; if (n1 >= 2) return { s: 'merge', n1 }; if (n1 === 1) return { s: 'one', n1 }; if (mine.some(u => u.star > need)) return { s: 'over', n1 }; return { s: 'none', n1 }; }
+const ING22 = { ok: ['#2f8a3a', '#dff3d6'], merge: ['#d98a00', '#fff1c9'], one: ['#b9770e', '#fbecc8'], none: ['#8a7a66', '#ece2cf'], over: ['#c0392b', '#f8d9d4'] };
+function ingLab22(st) { const ko = L === 'ko', n = FG.CFG.comboStar; return st.s === 'ok' ? (ko ? '✓ ★' + n + ' 있음' : '✓ ★' + n + ' ready') : st.s === 'merge' ? (ko ? '★1 둘 합치기!' : 'Merge 2× ★1!') : st.s === 'one' ? (ko ? '★1 하나 더' : '1 more ★1') : st.s === 'over' ? (ko ? '★3은 못 씀' : '★3 not usable') : (ko ? '없음 · 뽑기' : 'Not owned'); }
 function drawMyth() {
-  cx.fillStyle = 'rgba(20,12,4,.8)'; cx.fillRect(0, 0, W, H);
+  cx.fillStyle = 'rgba(20,12,4,.86)'; cx.fillRect(0, 0, W, H); const ko = L === 'ko';
   txt('🔮 ' + t('myth'), 24, 92, 22, '#fff6dc', null, 800, 4); btn(MY_X, '✕', true, '#8a5a32', 18);
-  txt(t('mythHint'), W / 2, 116, 11, '#e8dcc4', 'c', 600, 2);
-  const own = [...g.board, ...g.bench].filter(Boolean).map(u => u.k);
-  Object.keys(FG.RECIPES).forEach((m, i) => { const r = MY_ROW(i), R = FG.RECIPES[m], d = UNITS[m], done = g.myth[m], ok = g.canCombine(m);
-    rr(r.x, r.y, r.w, r.h, 14); cx.fillStyle = done ? 'rgba(80,70,60,.85)' : 'rgba(246,231,200,.95)'; cx.fill(); cx.strokeStyle = ok ? '#ffd84d' : TIER_COL[4]; cx.lineWidth = ok ? 4 : 2; cx.stroke();
-    sprite(m, r.x + 40, r.y + 42, 58, { alpha: done ? .5 : 1 });
-    txt(T[L].names[m], r.x + 76, r.y + 15, 14, done ? '#d8cbb4' : '#5a3a1e', null, 800);
-    rr(r.x + 76, r.y + 27, 76, 16, 8); cx.fillStyle = MC_COL[d.mc]; cx.fill(); txt(t('mcs')[d.mc], r.x + 114, r.y + 35, 10, '#fff', 'c', 800);
-    R.forEach((k, j) => { const mine = [...g.board, ...g.bench].filter(u => u && u.k === k), need = FG.CFG.comboStar, has = mine.some(u => u.star === need), best = mine.reduce((a, u) => Math.max(a, u.star), 0), x = r.x + 92 + j * 66, y = r.y + 64; cx.globalAlpha = has ? 1 : .4; sprite(k, x, y - 6, 28); cx.globalAlpha = 1; if (has) txt('✔', x + 14, y - 16, 12, '#3fae4a', 'c', 800, 2);
-      const lab = has ? '★' + need + ' OK' : best > need ? '★' + best + ' ✕' : '★' + best + '/' + need, lc = has ? '#2f8a3a' : best > need ? '#c0392b' : '#8a6a42'; txt(done ? '' : lab, x, y + 13, 10, done ? '#d8cbb4' : lc, 'c', 800, 0); if (j < 2) txt('+', x + 33, y - 6, 14, done ? '#d8cbb4' : '#8a6a42', 'c', 800); });
-    const b = MY_BTN(i); if (!done && !ok) { const why = mythWhy18(m); if (why) txt(why, b.x + b.w / 2, b.y + b.h + 9, 9, '#c0392b', 'c', 800, 0); } if (done) txt(t('made') + ' ✓', b.x + b.w / 2, b.y + b.h / 2, 15, '#ffd84d', 'c', 800, 3); else btn(b, t('combine') + (CFG.comboCost ? ' 🌰' + CFG.comboCost : ''), ok, '#c0392b', CFG.comboCost ? 13 : 15); });
+  txt(ko ? '재료 3명이 모두 ★2면 조합 · 신화마다 판당 1번' : 'All 3 friends at exactly ★2 → combine · once per run', W / 2, 114, 11, '#e8dcc4', 'c', 700, 2);
+  Object.keys(FG.RECIPES).forEach((m, i) => { const r = MY_ROW(i), R = FG.RECIPES[m], d = UNITS[m], done = g.myth[m], ok = g.canCombine(m), sts = R.map(ingSt22), nOk = sts.filter(x => x.s === 'ok').length;
+    rr(r.x, r.y, r.w, r.h, 14); cx.fillStyle = done ? 'rgba(80,70,60,.85)' : 'rgba(246,231,200,.97)'; cx.fill(); cx.strokeStyle = ok ? '#ffd84d' : TIER_COL[4]; cx.lineWidth = ok ? 4 : 2; cx.stroke();
+    sprite(m, r.x + 34, r.y + 50, 52, { alpha: done ? .5 : 1 });
+    txt(T[L].names[m], r.x + 66, r.y + 13, 14, done ? '#d8cbb4' : '#5a3a1e', null, 800);
+    const nw = Math.min(150, cx.measureText(T[L].names[m]).width); rr(r.x + 72 + nw, r.y + 5, 58, 16, 8); cx.fillStyle = MC_COL[d.mc]; cx.fill(); txt(t('mcs')[d.mc], r.x + 101 + nw, r.y + 13, 10, '#fff', 'c', 800);
+    if (!done) txt(nOk + '/3', r.x + 34, r.y + 14, 12, nOk === 3 ? '#2f8a3a' : '#8a6a42', 'c', 900, 0);
+    R.forEach((k, j) => { const st = sts[j], c = ING22[st.s], x = r.x + 64 + j * 88, y = r.y + 26, w = 84, h = 52;
+      rr(x, y, w, h, 10); cx.fillStyle = done ? 'rgba(255,255,255,.08)' : c[1]; cx.fill(); cx.strokeStyle = done ? 'rgba(255,255,255,.2)' : c[0]; cx.lineWidth = st.s === 'ok' ? 2.5 : 1.5; cx.stroke();
+      cx.globalAlpha = done ? .45 : st.s === 'none' ? .45 : 1; sprite(k, x + 18, y + 24, 30, { noShadow: 1 }); cx.globalAlpha = 1;
+      let nm = T[L].names[k]; cx.font = '800 10px ' + FONT; while (nm.length > 2 && cx.measureText(nm).width > w - 38) nm = nm.slice(0, -1); if (nm !== T[L].names[k]) nm += '…';
+      txt(nm, x + 36, y + 14, 10, done ? '#d8cbb4' : '#4a2e14', null, 800);
+      if (!done) { const lab = ingLab22(st); rr(x + 3, y + h - 19, w - 6, 16, 8); cx.fillStyle = c[0]; cx.fill(); txt(lab, x + w / 2, y + h - 11, 9.5, '#fff', 'c', 800, 0); txt('★'.repeat(Math.max(1, Math.min(3, (st.s === 'ok' ? 2 : st.n1 ? 1 : st.s === 'over' ? 3 : 0)))), x + 36, y + 27, 9, st.s === 'none' ? '#b8a88e' : '#e0a800', null, 800); } });
+    const b = MY_BTN(i); if (done) txt(t('made') + ' ✓', b.x + b.w / 2, b.y + b.h / 2, 15, '#ffd84d', 'c', 800, 3);
+    else { btn(b, t('combine'), ok, '#c0392b', 15); if (CFG.comboCost) txt('🌰' + CFG.comboCost, b.x + b.w / 2, b.y + b.h + 9, 10, g.gold < CFG.comboCost && nOk === 3 ? '#c0392b' : '#8a6a42', 'c', 800, 0); } });
 }
 const offerRect = i => ({ x: 16 + i * 142, y: 250, w: 134, h: 262 }), PEEK_BTN = { x: 120, y: 524, w: 210, h: 42 }; let offerPeek = false, peekFor = null;
 function drawOffer(dt) {
@@ -2061,10 +2076,11 @@ function drawBossIntro(dt) { const B = bossIntro; B.t += dt; if (B.t >= B.dur) {
     let left = n; Ly.lines.forEach((ln, q) => { const part = ln.slice(0, Math.max(0, left)); left -= ln.length + (Ly.sep[q] || 0); txt(part, W / 2, by + 12 + Ly.lh * (q + .5), Ly.size, '#3a1410', 'c', 800, 0); }); }
   cx.globalAlpha = a * (.5 + .3 * Math.sin(clock * 5)); txt(L === 'ko' ? '터치해서 건너뛰기' : 'Tap to skip', W / 2, H * .78, 12, '#fff', 'c', 700, 3); cx.globalAlpha = 1; }
 function loop(now) {
+  const cap = (screen === 'game' && g && g.phase === 'combat') || bossIntro ? FPS : Math.min(FPS, 30); if (now - last < 1000 / cap - 3) { requestAnimationFrame(loop); return; }
   const dt = Math.min(.1, Math.max(0, (now - last) / 1000)); last = now;
   // adaptive quality (p95 frame time over 3 s of battle): >28ms -> step down: particles/trails -> shadows/pulses -> resolution (floor DPR_MIN). sim untouched.
   if (screen === 'game' && g && g.phase === 'combat' && !document.hidden && !bossIntro) { perfF.push(dt); perfT += dt; if (perfT >= 3 && perfF.length >= 20) { perfT = 0; const s2 = perfF.slice().sort((a, b) => a - b), p95 = s2[Math.floor(s2.length * .95)]; perfF = []; window.__perf = { p95, QL, DPR_CAP };
-      perfBad = p95 > 0.028 ? perfBad + 1 : 0; if (perfBad >= 2) { perfBad = 0; if (QL < 2) QL++; else if (DPR_CAP > DPR_MIN() + .01) { DPR_CAP = Math.max(DPR_MIN(), DPR_CAP - .25); fit(); } try { localStorage.setItem('fg-ql', String(QL)); localStorage.setItem('fg-dpr', String(DPR_CAP)); } catch (e) {} } } } else { perfF = []; perfT = 0; }
+      perfBad = p95 > (FPS <= 30 ? 0.045 : 0.028) ? perfBad + 1 : 0; if (perfBad >= 2) { perfBad = 0; if (QL < 2) QL++; else if (DPR_CAP > DPR_MIN() + .01) { DPR_CAP = Math.max(DPR_MIN(), DPR_CAP - .25); fit(); } try { localStorage.setItem('fg-ql', String(QL)); localStorage.setItem('fg-dpr', String(DPR_CAP)); } catch (e) {} } } } else { perfF = []; perfT = 0; }
   ultFrame(dt); autoStartFrame(dt); if (screen === 'game' && g.phase === 'combat' && !pauseMenu && !bossIntro) { if (hsT > 0) hsT -= dt; else acc += dt * speed * (aim ? 0.3 : 1); let n = 0; while (acc >= STEP && n++ < 8 && !bossIntro) { g.step(STEP); acc -= STEP; checkBossIntro(); } } else acc = 0;
   try { draw(dt); if (bossIntro && screen === 'game') drawBossIntro(dt); musicTick(dt); } catch (e) { try { cx.restore(); cx.setTransform(1, 0, 0, 1, 0, 0); } catch (e2) {} if (!loop.errN) { loop.errN = 1; console.error(e); } } requestAnimationFrame(loop);  // one bad frame must never freeze the game
 }
@@ -2085,11 +2101,12 @@ function drawSynergy() { if (!g || !FG.SYN) return; const c = g.synCount(), v = 
     txt(SYNN[L][r][0] + ' ' + c[r] + (nx ? '/' + nx[0] : '★'), q.x + q.w / 2, q.y + 14, 13, on ? '#4a2e14' : '#fff6dc', 'c', 800, on ? 0 : 2); }); }
 function synTap(p) { if (!g || !FG.SYN) return false; const c = g.synCount(), v = g.synergy(); for (let i = 0; i < SYN_R.length; i++) if (inR(SYNC(i), p.x, p.y)) { const r = SYN_R[i];
     say(SYNN[L][r][1] + ' ' + FG.SYN[r].map(([n, b]) => n + (L === 'ko' ? '명 ' : ': ') + Math.round(b * 100) + '%').join(' / ') + ' · ' + SYNE[L][r] + Math.round(v[r] * 100) + '% (' + c[r] + ')', 3); return true; } return false; }
-const PM_RES = { x: 75, y: 300, w: 300, h: 56 }, PM_LANG = { x: 75, y: 368, w: 300, h: 50 }, PM_QUIT = { x: 75, y: 430, w: 300, h: 56 };
+const PM_RES = { x: 75, y: 300, w: 300, h: 56 }, PM_LANG = { x: 75, y: 368, w: 300, h: 50 }, PM_FPS = { x: 75, y: 428, w: 300, h: 50 }, PM_QUIT = { x: 75, y: 498, w: 300, h: 56 };
 function drawPause() { if (!pauseMenu || screen !== 'game') return; cx.fillStyle = 'rgba(10,6,2,.7)'; cx.fillRect(0, 0, W, H); txt(L === 'ko' ? '일시정지' : 'Paused', W / 2, 262, 24, '#fff6dc', 'c', 800, 4);
-  btn(PM_RES, L === 'ko' ? '▶ 계속하기' : '▶ Resume', true, '#3fae4a', 18); btn(PM_LANG, L === 'ko' ? '언어: 한국어' : 'Language: English', true, '#6d8f3e', 15);
-  btn(PM_QUIT, L === 'ko' ? '🏳 포기하고 대기실로' : '🏳 Give up & leave', true, '#c0392b', 17); txt(L === 'ko' ? '포기해도 지금까지 막은 웨이브만큼 보상을 받아요' : 'You keep rewards for the waves cleared so far', W / 2, 508, 12, '#ffe2a8', 'c', 700, 2); }
+  btn(PM_RES, L === 'ko' ? '▶ 계속하기' : '▶ Resume', true, '#3fae4a', 18); btn(PM_LANG, L === 'ko' ? '언어: 한국어' : 'Language: English', true, '#6d8f3e', 15); btn(PM_FPS, FPS === 30 ? (L === 'ko' ? '화면: 절전 (30fps · 발열↓)' : 'Display: Battery saver (30 fps)') : (L === 'ko' ? '화면: 부드럽게 (60fps)' : 'Display: Smooth (60 fps)'), true, '#4f7a8f', 15);
+  btn(PM_QUIT, L === 'ko' ? '🏳 포기하고 대기실로' : '🏳 Give up & leave', true, '#c0392b', 17); txt(L === 'ko' ? '포기해도 지금까지 막은 웨이브만큼 보상을 받아요' : 'You keep rewards for the waves cleared so far', W / 2, 576, 12, '#ffe2a8', 'c', 700, 2); }
 function pauseTap(p) { if (inR(PM_RES, p.x, p.y)) { pauseMenu = false; sfx('tap'); return; } if (inR(PM_LANG, p.x, p.y)) { L = L === 'en' ? 'ko' : 'en'; try { localStorage.setItem('fg-lang', L); } catch (e) {} return; }
+  if (inR(PM_FPS, p.x, p.y)) { FPS = FPS === 30 ? 60 : 30; try { localStorage.setItem('fg-fps', String(FPS)); } catch (e) {} sfx('tap'); return; }
   if (inR(PM_QUIT, p.x, p.y)) { pauseMenu = false; if (tut) tutFinish(); g._gaveUp = 1; g.end(false); endShown = 0; sfx('leak'); } }
 // ---------- economy UI (inserted inside ui.js closure by build.py) ----------
 let ES = window.ECON ? ECON.load() : null; const SAVEE = () => saveAll();
@@ -2328,7 +2345,7 @@ function drawAim() { if (!aim || g.phase !== 'combat') return; const R = FG.ULTS
   cx.save(); cx.fillStyle = 'rgba(10,20,40,.22)'; cx.fillRect(0, FY0, W, 656 - FY0); cx.fillStyle = 'rgba(140,200,255,' + .18 * a + ')'; cx.beginPath(); cx.ellipse(X, Y, R * KX, R * KY, 0, 0, 7); cx.fill(); cx.setLineDash([8, 6]); cx.strokeStyle = 'rgba(200,235,255,' + a + ')'; cx.lineWidth = 3; cx.stroke(); cx.setLineDash([]); cx.restore();
   txt(L === 'ko' ? '⚡ 적이 몰린 곳을 터치! (' + Math.ceil(3 - aim.t) + ')' : '⚡ Tap where foes gather! (' + Math.ceil(3 - aim.t) + ')', W / 2, FY0 + 22, 15, '#eaf6ff', 'c', 900, 4); }
 function drawUltGround() { for (const f of g.fx) { if (f.t !== 'ultBolt' && f.t !== 'ultStar') continue; const X = SX(f.x, f.y), Y = SY(f.x, f.y) + 12, mx = f.t === 'ultBolt' ? .6 : .5, k = 1 - f.life / mx, rgb = f.t === 'ultBolt' ? '150,210,255' : '255,220,120';
-  cx.save(); const gr = cx.createRadialGradient(X, Y, 2, X, Y, f.r * KX); gr.addColorStop(0, 'rgba(255,255,255,' + .55 * (1 - k) + ')'); gr.addColorStop(.5, 'rgba(' + rgb + ',' + .35 * (1 - k) + ')'); gr.addColorStop(1, 'rgba(' + rgb + ',0)'); cx.fillStyle = gr; cx.beginPath(); cx.ellipse(X, Y, f.r * KX, f.r * KY, 0, 0, 7); cx.fill();
+  cx.save(); glowImg(glowSpr('ug' + rgb, [[0, 'rgba(255,255,255,1)'], [.5, 'rgba(' + rgb + ',.64)'], [1, 'rgba(' + rgb + ',0)']]), X, Y, f.r * KX, f.r * KY, .55 * (1 - k));
   cx.strokeStyle = 'rgba(' + rgb + ',' + (1 - k) + ')'; cx.lineWidth = 4 * (1 - k) + 1; cx.beginPath(); cx.ellipse(X, Y, f.r * KX * (.3 + .8 * out3(k)), f.r * KY * (.3 + .8 * out3(k)), 0, 0, 7); cx.stroke(); cx.restore(); } }
 const STRK = { 2: 'DOUBLE KILL', 3: 'TRIPLE KILL', 5: 'RAMPAGE!', 8: 'UNSTOPPABLE!' };
 function drawUltFx(dt) {
@@ -2612,5 +2629,11 @@ drawStore = function (hit) { drawStore20(hit); const list = mythReady(); mythPop
   const bb = { x: r.x + 8, y: r.y + 102, w: r.w - 16, h: 24 }; rr(bb.x, bb.y, bb.w, bb.h, 10); cx.fillStyle = '#c0392b'; cx.fill(); txt((ko ? '조합 ' : 'Make ') + '🌰' + FG.CFG.comboCost, bb.x + bb.w / 2, bb.y + 12, 11, '#fff', 'c', 900, 2);
   if (list.length > 1) txt('+' + (list.length - 1), r.x + r.w - 8, r.y + 14, 11, '#ffe066', 'r', 900, 2); cx.restore(); };
 function mythPopTap(p) { const list = mythReady(); if (!list.length || mythPopA < .5 || !inR(MYTH_POP, p.x, p.y)) return false; const m = list[0]; const dst = g.combine(m); if (!dst) return false; sfx('merge'); shake = .25; const r = dst.t === 'p' ? cellRect(dst.i) : BR(dst.i); pops.push({ x: r.x + r.w / 2, y: r.y + r.h / 2, life: 1, max: 1, col: '#ff5a5a', label: T[L].names[m] }); mythPopA = 0; return true; }
+
+// v0.22: 🔮 badge on board/bench units that are ingredients of a not-yet-made mythic (bright = usable ★2, dim = still ★1)
+function drawIngBadges22() { if (!FG.RECIPES || mythOpen) return; const need = FG.CFG.comboStar, isIng = k => Object.keys(FG.RECIPES).some(m => !g.myth[m] && FG.RECIPES[m].includes(k));
+  const badge = (x, y, u) => { if (u.star > need || !isIng(u.k)) return; const on = u.star === need; cx.save(); cx.globalAlpha = on ? 1 : .6; cx.beginPath(); cx.arc(x, y, 9, 0, 7); cx.fillStyle = on ? '#7a3fb0' : 'rgba(70,40,100,.85)'; cx.fill(); cx.lineWidth = 2; cx.strokeStyle = on ? '#ffd84d' : 'rgba(255,255,255,.6)'; cx.stroke(); txt('🔮', x, y + 1, 10, '#fff', 'c', 800, 0); cx.restore(); };
+  g.board.forEach((u, i) => { if (!u || (drag && drag.moved && drag.src.t === 'p' && drag.src.i === i)) return; const r = cellRect(i); badge(r.cx + 17, r.cy - 30, u); });
+  g.bench.forEach((u, i) => { if (!u || (drag && drag.moved && drag.src.t === 'b' && drag.src.i === i)) return; const r = BR(i); badge(r.x + r.w - 10, r.y + 10, u); }); }
 })();
 </script></body></html>
