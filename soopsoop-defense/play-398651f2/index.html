@@ -176,7 +176,7 @@
 </script><script>// Forest Guardians — auto-battle defense simulation (deterministic, no DOM). v0.3 prototype (8 waves)
 (function (root) {
 'use strict';
-const VERSION = '0.23.0';
+const VERSION = '0.24.0';
 // ---------- PRNG: PCG32 ----------
 const M64 = (1n << 64n) - 1n, MUL = 6364136223846793005n;
 function PCG(seed, seq) { this.inc = ((BigInt(seq >>> 0) << 1n) | 1n) & M64; this.s = 0n; this.u32(); this.s = (this.s + BigInt(seed >>> 0) + (BigInt(seed >>> 0) << 32n)) & M64; this.u32(); }
@@ -312,7 +312,7 @@ G.cellPos = function (i) { return { x: CFG.colX[i % CFG.cols], y: CFG.rowY[(i / 
 G.L = function (k) { return this.meta.lv[k] || 1; };
 G.scanMax = function () { return (CFG.scanPerWave + (this.meta.rel.lamp >= 12 ? 1 : 0)) * (this.w10 ? 2 : 1); };
 G.R = function (k) { return this.meta.rel[k] || 0; };
-G.deliverCost = function () { return Math.round((!this.w10 ? CFG.deliverCost(this.delivN) : 20 + CFG.delivStep10 * this.delivN) * (1 - 0.01 * this.meta.rel.string)); };
+G.deliverCost = function () { if (this.freeDeliv > 0) return 0; return Math.round((!this.w10 ? CFG.deliverCost(this.delivN) : 20 + CFG.delivStep10 * this.delivN) * (1 - 0.01 * this.meta.rel.string)); };
 G.canScan = function () { return this.phase === 'prep' && !this.offer && this.scanUsed < this.scanMax(); };
 G.canDeliver = function () { return this.phase === 'prep' && !this.offer && this.bench.some(b => !b) && this.gold >= this.deliverCost(); };
 G.mkUnit = function (k) { return { id: this.uid++, k, star: 1, bonus: 0 }; };
@@ -326,8 +326,8 @@ G.deliver = function () {
   if (!this.canDeliver()) return false;
   if (this.scanArmed && !this.canScan()) this.scanArmed = false;
   const c = this.meta.rel.clover, o0 = this.scanArmed ? SCAN_ODDS : BASE_ODDS, odds = [o0[0] - 0.009 * c, o0[1] + 0.005 * c, o0[2] + 0.003 * c, o0[3] + 0.001 * c];
-  this.gold -= this.deliverCost(); if (this.scanArmed) { this.stats.scans++; this.scanUsed++; }
-  this.scanArmed = false; this.delivN++; this.stats.deliveries++;
+  const free = this.freeDeliv > 0; this.gold -= this.deliverCost(); if (this.scanArmed) { this.stats.scans++; this.scanUsed++; }
+  this.scanArmed = false; if (free) this.freeDeliv--; else this.delivN++; // v0.24 tutorial free recruit: no acorns, no price step this.stats.deliveries++;
   const pityHit = this.dry >= CFG.pity - (this.meta.rel.lamp >= 15 ? 2 : this.meta.rel.lamp >= 6 ? 1 : 0), offer = [];
   for (let i = 0; i < 3; i++) { const f = this.rD.f(); let t = 0, acc = odds[0]; while (t < 3 && f >= acc) { t++; acc += odds[t]; } if (CFG.legacyPool) t = f < 0.70 ? 0 : f < 0.95 ? 1 : 2; if (i === 0 && pityHit && t < 2) t = 2; const L = CFG.legacyPool ? LEGACY[t] : TIER_UNITS[t]; offer.push(L[this.rD.int(L.length)]); }
   this.dry = offer.some(k => UNITS[k].tier >= 2) ? 0 : this.dry + 1;
@@ -372,8 +372,8 @@ G.startWave = function () {
   if (this.phase === 'bless') { if (CFG.autoBless === false) return false; this.pickBless(typeof CFG.autoBless === 'function' ? CFG.autoBless(this) : this.rB.int(3)); }
   if (this.phase !== 'prep' || this.offer) return false;
   this.wave++; this.phase = 'combat'; this.t = 0; this.scanArmed = false;
-  const [hm, list, boss] = this.endless ? endlessWave(this.wave) : this.WV[this.wave]; this.curHm = hm; this.eAtkW = this.endless ? 1 + Math.min(INF.atkMax, INF.atkW * Math.max(0, this.wave - 20)) : 1;
-  const types = []; const MOB = CFG.mob || 1; this.mobW = MOB; const wk = this.wave === 1 ? CFG.w1Mob : this.wave === 2 ? (this.meta.stage > 20 && this.meta.stage <= 30 ? CFG.w2MobHi : CFG.w2Mob) : 1; for (const [k, n0] of list) { const n = Math.max(1, Math.round(n0 * MOB * wk)); for (let i = 0; i < n; i++) types.push(CFG.oldRes && k === 'bat' ? 'mole' : k); }
+  const [hm, list, boss] = this.endless ? endlessWave(this.wave) : this.WV[this.wave]; this.curHm = hm; this.eAtkW = this.endless ? 1 + Math.min(INF.atkMax, INF.atkW * Math.max(0, this.wave - 20)) : 1; if (this.tutRun && this.wave <= 2) this.eAtkW *= 0.4; // v0.24 first-ever run: gentler first two waves
+  const types = []; const MOB = CFG.mob || 1; this.mobW = MOB; const wk = (this.tutRun && this.wave <= 2 ? 0.55 : 1) * (this.wave === 1 ? CFG.w1Mob : this.wave === 2 ? (this.meta.stage > 20 && this.meta.stage <= 30 ? CFG.w2MobHi : CFG.w2Mob) : 1); for (const [k, n0] of list) { const n = Math.max(1, Math.round(n0 * MOB * wk)); for (let i = 0; i < n; i++) types.push(CFG.oldRes && k === 'bat' ? 'mole' : k); }
   // deterministic shuffle by spawn stream
   for (let i = types.length - 1; i > 0; i--) { const j = this.rS.int(i + 1); [types[i], types[j]] = [types[j], types[i]]; }
   const rushW = this.endless ? CFG.rush !== false && this.wave % 5 === 3 : !!(this.WV[this.wave] && this.WV[this.wave][3]); this.rushW = rushW; const gap = (this.w10 ? CFG.gap10 : CFG.gap) * (rushW ? 0.5 : 1);
@@ -804,7 +804,7 @@ Object.assign(ENEMIES, {
 const RES = { p: [0.6, 0.1], m: [0.1, 0.6], b: [0.3, 0.3] };
 // skill: [kind, period, first, opt]; d = chapter (0..4) of the boss's mechanics; x = chapter mechanic only (old flagships)
 const BOSSDEF = {
-  boss: { d: 0, res: 'p' }, moleboss: { d: 0, res: 'p' },
+  boss: { d: 0, res: 'p' }, moleboss: { d: 0, res: 'p', sk: [['slam', 7, 4, 1.8]] }, // v0.24: first boss gets one telegraphed, barrier-blockable slam
   spikehog: { d: 0, res: 'p', sk: [['charge', 9, 4], ['zap', 6, 2]] }, acornsq: { d: 0, res: 'm', sk: [['volley', 6, 2, 3], ['slam', 9, 5, 1.4]] },
   elkchief: { d: 0, res: 'p', sk: [['charge', 8, 3], ['slam', 10, 6, 2], ['summon', 14, 8, 'boar']] }, waspqueen: { d: 0, res: 'm', sk: [['summon', 12, 4, 'bat'], ['spit', 6, 2], ['pool', 9, 6]] },
   witch: { d: 1, res: 'm', x: 1, sk: [['wipe']] }, toadboss: { d: 1, res: 'm' },
@@ -853,7 +853,7 @@ G.bossAI18 = G.bossAI; G.bossAI = function (a, dt) {
   if (D && D.sk && !a.untarget) D.sk.forEach((s, i) => { const [kind, per, , opt] = s;
     if (kind === 'wipe') { if (!a.wDone && (a.hp < a.max * CFG.wipeAt || a.age >= CFG.wipeT)) this.wipeStart(a); return; }
     a.kt[i] -= dt; if (a.kt[i] > 0) return; a.kt[i] = per;
-    if (kind === 'slam') { const u = tgt(); this.teleAt(a, { kind: 'slam', at: T + 1.2, x: u.x, y: u.y, r: (opt || 1.8) * TILE }); }
+    if (kind === 'slam') { const u = tgt(); this.teleAt(a, { kind: 'slam', at: T + (a.k === 'moleboss' ? 1.6 : 1.2), x: u.x, y: u.y, r: (opt || 1.8) * TILE }); }
     else if (kind === 'pool') { const u = tgt(); this.teleAt(a, { kind: 'pool', at: T + 1.0, x: u.x, y: u.y, r: 1.4 * TILE }); }
     else if (kind === 'lava') { const u = al[this.rS.int(al.length)]; this.teleAt(a, { kind: 'lava', at: T + 1.0, x: u.x, y: u.y, r: 1.2 * TILE, life: 3 }); }
     else if (kind === 'spit') { const u = tgt(); this.teleAt(a, { kind: 'spit', at: T + 1.0, x: u.x, y: u.y, r: 1.4 * TILE }); }
@@ -878,7 +878,7 @@ G.bossAI18 = G.bossAI; G.bossAI = function (a, dt) {
 G.kitUpkeep = function (dt) { const T = this.t;
   for (const a of this.enemies) if (a.tsh > 0 && !a.dead) { a.tshT -= dt; if (a.tshT <= 0) a.tsh = 0; else a.tsh = Math.min(a.tshMax, a.tsh + a.max * 0.03 * dt); }
   if (this.sealE && (this.sealE.dead || !(this.sealT > T))) { if (this.sealE.dead && !this.sealE.gone && this.sealT > T) { this.sealT = 0; this.fx.push({ t: 'sealOff', life: 0.6 }); this.stats.totemK = (this.stats.totemK || 0) + 1; } if (!this.sealE.dead) { this.sealE.dead = true; this.sealE.gone = 1; } this.sealE = null; }
-  const c = this.ctotem; if (c) { if (c.dead) { if (!c.gone) this.stats.totemK = (this.stats.totemK || 0) + 1; this.ctotem = null; } else { c.life -= dt; if (c.life <= 0 || !c.owner || c.owner.dead) { c.dead = true; c.gone = 1; this.ctotem = null; } else { for (const u of this.allies) if (!u.dead) u.curse = Math.max(u.curse || 0, 0.3); c.owner.hp = Math.min(c.owner.max, c.owner.hp + c.owner.max * 0.01 * dt); this.stats.ctotT = (this.stats.ctotT || 0) + dt; } } }
+  const c = this.ctotem; if (c) { if (c.dead) { if (!c.gone) { this.stats.totemK = (this.stats.totemK || 0) + 1; this.fx.push({ t: 'ctotOff', x: c.x, y: c.y, life: 0.6 }); } this.ctotem = null; } else { c.life -= dt; if (c.life <= 0 || !c.owner || c.owner.dead) { c.dead = true; c.gone = 1; this.ctotem = null; } else { for (const u of this.allies) if (!u.dead) u.curse = Math.max(u.curse || 0, 0.3); c.owner.hp = Math.min(c.owner.max, c.owner.hp + c.owner.max * 0.01 * dt); this.stats.ctotT = (this.stats.ctotT || 0) + dt; } } }
 };
 // v0.18: foes that reach the wall stay and keep hitting the castle until killed (no more 'leak and vanish')
 G.wallHit = function (e) { if (!e.atWall) { e.atWall = 1; this.stats.leaks++; this.leakW++; this.stats.wallN = (this.stats.wallN || 0) + 1; this.fx.push({ t: 'leak', x: e.x, life: 0.5 }); e.cd = Math.min(e.cd, 0.2); }
@@ -1277,12 +1277,12 @@ const imgOk = k => IMG[k] && IMG[k].complete && IMG[k].naturalWidth;
 // ---------- i18n ----------
 let L = 'en'; try { L = localStorage.getItem('fg-lang') || ((navigator.language || '').startsWith('ko') ? 'ko' : 'en'); } catch (e) {}
 const T = {
-  en: { mid: 'MID', enemies: 'ENEMIES', next: 'Next', now: 'Now', left: 'Left', title: 'SoopSoop Defense', sub: 'Animal squad auto-battle defense', play: 'Play Daily', rnd: 'Random Seed', daily: 'Daily', best: 'Best', wave: 'Wave', deliver: 'Recruit', start: 'Battle!', scan: 'Lucky Seed', scanOn: 'Lucky ON', scanUsed: 'Used', scanInfo: 'Next recruit: Hero 3%→6% · Rare 10%→17% · Advanced 27%→32%', pick: 'Open a seed pouch — pick one friend', win: 'The forest is safe!', lose: 'The storehouse fell', score: 'Score', again: 'Retry', home: 'Home', merge: 'MERGE', swap: 'SWAP', move: 'MOVE', full: 'MAX 12', scrap: 'Release', benchFull: 'Bench full — place or release a friend', noGold: 'Not enough acorns', hint: 'Drag friends onto the field · same animal & ★ = MERGE', core: 'Wall', lang: '한국어', front: 'FRONT', back: 'BACK',
+  en: { mid: 'MID', enemies: 'ENEMIES', next: 'Next', now: 'Now', left: 'Left', title: 'SoopSoop Defense', sub: 'Animal squad auto-battle defense', play: 'Play Daily', rnd: 'Random Seed', daily: 'Daily', best: 'Best', wave: 'Wave', deliver: 'Recruit', start: 'Battle!', scan: 'Lucky Seed', scanOn: 'Lucky ON', scanUsed: 'Used', scanInfo: 'Next recruit: Hero 3%→6% · Rare 10%→17% · Advanced 27%→32%', pick: 'Open a seed pouch — pick one friend', win: 'The forest is safe!', lose: 'The wall fell', score: 'Score', again: 'Retry', home: 'Home', merge: 'MERGE', swap: 'SWAP', move: 'MOVE', full: 'MAX 12', scrap: 'Release', benchFull: 'Bench full — place or release a friend', noGold: 'Not enough acorns', hint: 'Drag friends onto the field · same animal & ★ = MERGE', core: 'Wall', lang: '한국어', front: 'FRONT', back: 'BACK',
     names: { moleboss: 'Mole Foreman', toadboss: 'Poison Toad Elder', jellyboss: 'Mist Jellyfish', golemboss: 'Lava Golem', batqueen: 'Vampire Bat Queen', golemlet: 'Lava Pebble', witch: 'Mushroom Witch', turtleking: 'Moon Turtle King', boarking: 'Volcano Boar King', wolflord: 'Shadow Wolf Lord', wolfclone: 'Shadow Clone', quokka: 'Quokka', redpanda: 'Red Panda', fox: 'Fox', penguin: 'Penguin', axo: 'Axolotl', dragon: 'Baby Dragon', hedgehog: 'Hedgehog', mushroom: 'Mushroom Sprite', rabbit: 'Rabbit', treant: 'Treant', firefly: 'Firefly Sprite', wind: 'Wind Sprite', squirrel: 'Squirrel', frog: 'Frog', owl: 'Owl', badger: 'Badger', bear: 'Brown Bear', deer: 'Deer', wolfknight: 'Wolf Knight', hawk: 'Hawk Hunter', water: 'Water Spirit', sparky: 'Thunder Squirrel', guardian: 'Turtle Guardian', bee: 'Honey Bee', flower: 'Flower Spirit', sage: 'Forest Sage Owl', elder: 'Ancient Elder Tree', wolfking: 'Silver Wolf King', thawk: 'Thunder Hawk', phoenix: 'Phoenix', gumiho: 'Moon Gumiho', bat: 'Crystal Bat', mole: 'Mole Thief', boar: 'Boar', wolf: 'Shadow Wolf', turtle: 'Armored Turtle', boss: 'Bandit Bear' },
     roles: { tank: 'Tank · taunts, -25% dmg', melee: 'Brawler · every 4th hit +25', ranged: 'Ranged', healer: 'Healer · heals 25 / 3s' },
     desc: { quokka: 'Tank · taunts, -25% damage', redpanda: 'Brawler · every 4th hit +25', fox: 'Archer · 15% crit ×1.5', penguin: 'Frost · slows 25% for 2s', axo: 'Healer · heals lowest ally 25 / 3s', dragon: 'Fire · splash damage', hedgehog: 'Thorns · throws spines, reflects 30% melee dmg', mushroom: 'Spores · poison pool 2s', rabbit: 'Swift · dodges 20% of hits', treant: 'Guardian · -20% dmg, roots foes every 6s', firefly: 'Glow · allies nearby +20% attack speed', wind: 'Gale · pierces 2, pushes foes back', squirrel: 'Acorns · 20% bounce to a 2nd foe', frog: 'Poison · 3s poison on hit', owl: 'Arcane · every 3rd bolt ×1.8', badger: 'Shred · -10% armor & resist per hit (×3)', bear: 'Maul · every 4th hit stuns 0.8s', deer: 'Blessing · heal 30 + shield 12% / 4s', wolfknight: 'Bleed · 3s bleed on hit', hawk: 'Hunter · 30% crit ×2', water: 'Tide · splash + slow 30%', sparky: 'Chain · lightning jumps to 3 foes', guardian: 'Bulwark · taunts, shields allies 15% / 6s', bee: 'Honey · every 2.5s nearby allies +10 mana', flower: 'Bloom · allies nearby ATK +15%', sage: 'Support · every 4s: area stun 1.5s + shred 25%', elder: 'Support · all foes -10% speed · shields all allies 12% / 8s', wolfking: 'Physical DPS · every 3rd hit cleaves + bleed, lifesteal 6%', thawk: 'Physical DPS · every 4th attack dives (×1.8 area, stun)', phoenix: 'Magic DPS · fire splash + burn, reborn once', gumiho: 'Magic DPS · chain 3 · every 9th: 9 fox orbs' },
     tiers: ['Common', 'Advanced', 'Rare', 'Hero', 'Mythic'], phys: 'Physical', mag: 'Magic', comboOnly: 'Combine only', myth: 'Mythic', box: 'Hero Box', boxPick: 'Hero Box — pick one hero', combine: 'Combine', made: 'Made', mcs: { sup: 'Support', phy: 'Physical DPS', mag: 'Magic DPS' }, boxFull: 'Free a bench slot first', mythHint: 'Each of the 3 friends must be exactly ★2 (★3 does not count). One of each mythic per run.', hp: 'HP', atk: 'ATK', rng: 'RNG' },
-  ko: { mid: '중간', enemies: '적', next: '다음', now: '진행 중', left: '남은 적', title: '숲숲 디펜스', sub: '동물 군단 오토배틀 디펜스', play: '오늘의 도전', rnd: '랜덤 시드', daily: '오늘', best: '최고', wave: '웨이브', deliver: '영입', start: '전투!', scan: '행운 씨앗', scanOn: '행운 켜짐', scanUsed: '사용함', scanInfo: '다음 영입: 영웅 3%→6% · 희귀 10%→17% · 고급 27%→32%', pick: '씨앗 주머니를 열어 친구 하나를 고르세요', win: '숲을 지켜냈어요!', lose: '창고가 털렸어요', score: '점수', again: '다시', home: '처음으로', merge: '합성', swap: '교체', move: '이동', full: '최대 12', scrap: '보내기', benchFull: '대기칸이 가득 찼어요 — 배치하거나 보내세요', noGold: '도토리가 부족해요', hint: '친구를 전장으로 끌어 놓기 · 같은 동물·같은 별 = 합성', core: '성벽', lang: 'English', front: '앞줄', back: '뒷줄',
+  ko: { mid: '중간', enemies: '적', next: '다음', now: '진행 중', left: '남은 적', title: '숲숲 디펜스', sub: '동물 군단 오토배틀 디펜스', play: '오늘의 도전', rnd: '랜덤 시드', daily: '오늘', best: '최고', wave: '웨이브', deliver: '영입', start: '전투!', scan: '행운 씨앗', scanOn: '행운 켜짐', scanUsed: '사용함', scanInfo: '다음 영입: 영웅 3%→6% · 희귀 10%→17% · 고급 27%→32%', pick: '씨앗 주머니를 열어 친구 하나를 고르세요', win: '숲을 지켜냈어요!', lose: '성벽이 무너졌어요', score: '점수', again: '다시', home: '처음으로', merge: '합성', swap: '교체', move: '이동', full: '최대 12', scrap: '보내기', benchFull: '대기칸이 가득 찼어요 — 배치하거나 보내세요', noGold: '도토리가 부족해요', hint: '친구를 전장으로 끌어 놓기 · 같은 동물·같은 별 = 합성', core: '성벽', lang: 'English', front: '앞줄', back: '뒷줄',
     names: { moleboss: '두더지 굴착대장', toadboss: '독두꺼비 장로', jellyboss: '안개 해파리', golemboss: '용암 골렘', batqueen: '흡혈 박쥐 여왕', golemlet: '용암 조각', witch: '버섯 마녀', turtleking: '달빛 거북 왕', boarking: '화산 멧돼지 왕', wolflord: '그림자 늑대 군주', wolfclone: '그림자 분신', quokka: '쿼카', redpanda: '레서판다', fox: '여우', penguin: '펭귄', axo: '우파루파', dragon: '아기 드래곤', hedgehog: '고슴도치', mushroom: '버섯 정령', rabbit: '토끼', treant: '나무 정령', firefly: '반딧불 정령', wind: '바람 정령', squirrel: '다람쥐', frog: '개구리', owl: '부엉이', badger: '오소리', bear: '불곰', deer: '사슴', wolfknight: '늑대 기사', hawk: '매 사냥꾼', water: '물의 정령', sparky: '번개 다람쥐', guardian: '거북 수호자', bee: '꿀벌 정령', flower: '꽃의 정령', sage: '숲의 현자 부엉이', elder: '고목 어르신', wolfking: '은빛 늑대왕', thawk: '천둥 매', phoenix: '불사조', gumiho: '달의 구미호', bat: '수정 박쥐', mole: '도둑 두더지', boar: '멧돼지', wolf: '그림자 늑대', turtle: '갑옷 거북', boss: '도적 곰' },
     desc: { quokka: '탱커 · 주변 적을 끌어당김, 받는 피해 -25%', redpanda: '근접 · 4번째 공격마다 +25', fox: '궁수 · 치명타 15% ×1.5', penguin: '빙결 · 2초간 25% 감속', axo: '힐러 · 3초마다 아군 25 회복', dragon: '불 · 범위 피해', hedgehog: '가시 · 가시 던지기, 근접 피해 30% 반사', mushroom: '포자 · 2초간 독 장판', rabbit: '날쌤 · 공격 20% 회피', treant: '수호 · 받는 피해 -20%, 6초마다 주변 적 묶기', firefly: '빛 · 주변 아군 공격 속도 +20%', wind: '돌풍 · 2명 관통, 적을 밀어냄', squirrel: '도토리 · 20% 확률로 옆 적에게 튕김', frog: '독 · 맞히면 3초 중독', owl: '비전 · 3번째 공격마다 ×1.8', badger: '갈퀴 · 맞힐 때마다 방어·마저 -10% (3중첩)', bear: '후려치기 · 4번째 공격마다 0.8초 기절', deer: '축복 · 4초마다 30 회복 + 보호막 12%', wolfknight: '출혈 · 맞히면 3초 출혈', hawk: '사냥꾼 · 치명타 30% ×2', water: '물결 · 범위 피해 + 30% 감속', sparky: '연쇄 · 번개가 적 3명에게 튐', guardian: '방벽 · 도발, 6초마다 아군 보호막 15%', bee: '꿀 · 2.5초마다 주변 아군 마나 +10', flower: '개화 · 주변 아군 공격 +15%', sage: '서포터 · 4초마다 범위 기절 1.5초 + 방깎 25%', elder: '서포터 · 모든 적 이동 -10% · 8초마다 전원 보호막 12%', wolfking: '물리 딜러 · 3타마다 베기 + 출혈, 흡혈 6%', thawk: '물리 딜러 · 4번째마다 급강하 (범위 ×1.8, 기절)', phoenix: '마법 딜러 · 화염 범위 + 화상, 한 번 부활', gumiho: '마법 딜러 · 연쇄 3 · 9번째마다 여우 구슬 9개' },
     tiers: ['일반', '고급', '희귀', '영웅', '신화'], phys: '물리', mag: '마법', comboOnly: '조합으로만 획득', myth: '신화', box: '영웅 상자', boxPick: '영웅 상자 — 영웅 하나를 고르세요', combine: '조합', made: '완성', mcs: { sup: '서포터', phy: '물리 딜러', mag: '마법 딜러' }, boxFull: '대기석을 한 칸 비워 주세요', mythHint: '재료 3명이 모두 ★2여야 조합 (★3은 안 됨) · 신화마다 판당 1번', hp: '체력', atk: '공격', rng: '사거리' },
@@ -1750,7 +1750,7 @@ function drawOffer(dt) {
   if (offerPeek) { btn(PEEK_BTN, L === 'ko' ? '🃏 카드 다시 보기' : '🃏 Back to cards', true, '#7a3fb0', 15); return; }
   pickAnim = Math.min(1, pickAnim + dt * 3.5);
   cx.fillStyle = 'rgba(20,12,4,.72)'; cx.fillRect(0, 0, W, H);
-  txt(g.offerSrc === 'box' ? t('boxPick') : t('pick'), W / 2, 222, 17, g.offerSrc === 'box' ? '#e8c2ff' : '#fff6dc', 'c', 800, 4);
+  if (!tut || tut.lobby) txt(g.offerSrc === 'box' ? t('boxPick') : t('pick'), W / 2, 222, 17, g.offerSrc === 'box' ? '#e8c2ff' : '#fff6dc', 'c', 800, 4);
   for (let i = 0; i < 3; i++) {
     const k = g.offer[i], d = UNITS[k], r = offerRect(i), p = Math.max(0, Math.min(1, pickAnim * 1.4 - i * .15)), s = .5 + .5 * (1 - Math.pow(1 - p, 3)) + Math.sin(p * Math.PI) * .08;
     cx.save(); cx.translate(r.x + r.w / 2, r.y + r.h / 2); cx.scale(s, s); cx.translate(-(r.x + r.w / 2), -(r.y + r.h / 2));
@@ -1760,11 +1760,11 @@ function drawOffer(dt) {
     cx.fillStyle = '#c99a5b'; cx.beginPath(); cx.ellipse(r.x + r.w / 2, r.y + 128, 46, 16, 0, 0, 7); cx.fill(); cx.fillStyle = '#8a5a32'; cx.beginPath(); cx.ellipse(r.x + r.w / 2, r.y + 128, 36, 9, 0, 0, 7); cx.fill();
     sprite(k, r.x + r.w / 2, r.y + 86 - (1 - p) * 30, 98, { noShadow: 1, hop: Math.abs(Math.sin(clock * 4 + i)) * 3 });
     txt(T[L].names[k], r.x + r.w / 2, r.y + 158, 16, '#5a3a1e', 'c', 800);
-    txt(T[L].tiers[d.tier] + ' · ' + SYNN[L][FG.SYN_OF(k)][0] + SYNN[L][FG.SYN_OF(k)][1], r.x + r.w / 2, r.y + 174, 11, d.tier === 0 ? '#8a6a42' : TIER_COL[d.tier], 'c', 800);
+    txt(T[L].tiers[d.tier] + ' · ' + SYNN[L][FG.SYN_OF(k)][0] + SYNN[L][FG.SYN_OF(k)][1], r.x + r.w / 2, r.y + 174, 12, d.tier === 0 ? '#8a6a42' : TIER_COL[d.tier], 'c', 800);
     const lines = T[L].desc[k].split(' · ');
-    txt(atkMode(k), r.x + r.w / 2, r.y + 189, 11, UNITS[k].rng >= 3 ? '#2a6fb0' : '#b0402a', 'c', 800); txt('✦ ' + (SKN[L][k] || ''), r.x + r.w / 2, r.y + 204, 11, '#7a3fb0', 'c', 800);
-    txt(lines[0], r.x + r.w / 2, r.y + 219, 11, '#6b4424', 'c', 800); { let s2 = lines[1] || '', fs = 10; cx.font = '600 ' + fs + 'px ' + FONT; while (cx.measureText(s2).width > r.w - 12 && fs > 8) { fs -= .5; cx.font = '600 ' + fs + 'px ' + FONT; } txt(s2, r.x + r.w / 2, r.y + 232, fs, '#6b4424', 'c', 600); }
-    { const ms = Object.keys(FG.RECIPES).filter(m => !g.myth[m] && FG.RECIPES[m].includes(k)); if (ms.length) { const lab = '🔮 ' + ms.map(m => T[L].names[m]).join('·') + (L === 'ko' ? ' 재료' : ''); let fs = 10; cx.font = '800 ' + fs + 'px ' + FONT; while (cx.measureText(lab).width > r.w - 14 && fs > 7) { fs -= .5; cx.font = '800 ' + fs + 'px ' + FONT; } rr(r.x + 6, r.y + 6, r.w - 12, 17, 8); cx.fillStyle = 'rgba(122,63,176,.92)'; cx.fill(); txt(lab, r.x + r.w / 2, r.y + 15, fs, '#fff', 'c', 800, 0); } }
+    txt(atkMode(k), r.x + r.w / 2, r.y + 190, 12, UNITS[k].rng >= 3 ? '#2a6fb0' : '#b0402a', 'c', 800); txt('✦ ' + (SKN[L][k] || ''), r.x + r.w / 2, r.y + 206, 12, '#7a3fb0', 'c', 800);
+    { let s2 = lines[1] || lines[0] || '', fs = 11.5; cx.font = '700 ' + fs + 'px ' + FONT; while (cx.measureText(s2).width > r.w - 10 && fs > 8.5) { fs -= .5; cx.font = '700 ' + fs + 'px ' + FONT; } txt(s2, r.x + r.w / 2, r.y + 224, fs, '#6b4424', 'c', 700); } // v0.24: role was shown twice (chip line + desc) -> desc only
+    { const ms = newbie24() ? [] : Object.keys(FG.RECIPES).filter(m => !g.myth[m] && FG.RECIPES[m].includes(k)); if (ms.length) { const lab = '🔮 ' + ms.map(m => T[L].names[m]).join('·') + (L === 'ko' ? ' 재료' : ''); let fs = 10; cx.font = '800 ' + fs + 'px ' + FONT; while (cx.measureText(lab).width > r.w - 14 && fs > 7) { fs -= .5; cx.font = '800 ' + fs + 'px ' + FONT; } rr(r.x + 6, r.y + 6, r.w - 12, 17, 8); cx.fillStyle = 'rgba(122,63,176,.92)'; cx.fill(); txt(lab, r.x + r.w / 2, r.y + 15, fs, '#fff', 'c', 800, 0); } }
     const owned = [...g.board, ...g.bench].some(u => u && u.k === k && u.star === 1); // new recruits are 1★: only a 1★ copy can merge
     if (owned) { rr(r.x + 16, r.y + 240, r.w - 32, 20, 9); cx.fillStyle = '#ffd84d'; cx.fill(); txt(t('merge') + '!', r.x + r.w / 2, r.y + 250, 12, '#6b3a00', 'c', 800); }
     cx.restore();
@@ -1787,7 +1787,7 @@ function drawEnd(dt) {
   if (r.win && window.STORY_LINES) { cx.globalAlpha = .9; wrapText((L === 'ko' ? '도적 곰: ' : 'Bandit Bear: ') + STORY_LINES.tease[L], W / 2, 672, W - 70, 13, '#d9c7a6', 19, 700); cx.globalAlpha = 1; }
   if (g._rew) { const R2 = g._rew, fr = Object.values(R2.frags).reduce((a, b) => a + b, 0); rr(40, 408, W - 80, R2.first || (R2.newCodex && R2.newCodex.length) ? 60 : 40, 14); cx.fillStyle = 'rgba(255,246,220,.14)'; cx.fill();
     txt(lt('rewards') + ':  🪙 +' + R2.gold + '   🗝 +' + R2.keys + '   🧩 +' + fr + (R2.stones ? '   🔷 +' + R2.stones : '') + (R2.dia ? '   💎 +' + R2.dia : ''), W / 2, 428, 15, '#ffe9a8', 'c', 800, 3); const ex = [R2.keyBonus ? lt('keyBonus') : R2.first ? lt('firstClear') : '', R2.newCodex && R2.newCodex.length ? lt('codexNew') + ' ' + R2.newCodex.map(k => T[L].names[k]).join(', ') : ''].filter(Boolean).join(' · '); if (ex) txt(ex, W / 2, 452, 12, '#9cff6a', 'c', 800, 3); }
-  const nx = endNext(); btn(END_AGAIN, nx ? lt('nextStage') + ' ' + FG.stageName(nx) + ' ▶' : t('again'), true, '#3fae4a'); btn(END_HOME, lt('lobby'), true, '#7a8f4a');
+  const nx = endNext(); btn(END_AGAIN, nx ? lt('nextStage') + ' ' + FG.stageName(nx) + ' ▶' : t('again'), true, '#3fae4a'); { const lu = lvupHint24(); btn(END_HOME, lu ? (L === 'ko' ? '⬆ 동료 레벨업 하러 가기 (' + lu.n + '명)' : '⬆ Level up friends (' + lu.n + ')') : lt('lobby'), true, lu ? '#e08a1e' : '#7a8f4a'); }
   if (!isDaily) txt(lt('stage') + ' ' + FG.stageName(g.meta.stage), W / 2, 306, 13, '#d9c7a6', 'c', 700, 2);
   drawEndExtras();
 }
@@ -1976,12 +1976,14 @@ let tut = null; const TUT_KEY = 'fg-tut-v3';
 const tutDone = () => { try { return localStorage.getItem(TUT_KEY) === '1'; } catch (e) { return true; } };
 const tutFinish = () => { tut = null; try { localStorage.setItem(TUT_KEY, '1'); } catch (e) {} };
 const TUTX = {
-  en: ['Tap Recruit to open a seed pouch', 'Pick a friend to join', 'Drag your friend onto any tile — enemies come from the right', 'Recruit once more', 'Same friend again! Pick it', 'Drop it ON the same friend to MERGE ★2', 'All set — tap Battle!', 'Friends walk out and fight on their own', 'Great! Clear waves → earn acorns → recruit more. Good luck, Captain!', 'Level up friends with fragments', 'Open relics with keys'],
-  ko: ['영입을 눌러 씨앗 주머니를 열어요', '함께할 동료를 하나 골라요', '동료를 아무 칸에나 끌어다 놓아요 — 적은 오른쪽에서 와요', '한 번 더 영입해요', '같은 동료가 나왔어요! 골라요', '같은 동료 위에 겹쳐 놓으면 ★2로 합성돼요', '준비 끝 — 전투!를 눌러요', '동료들이 걸어나가 알아서 싸워요', '좋아요! 웨이브를 막으면 도토리 → 더 영입. 행운을 빌어요, 대장!', '조각을 모아 동료를 레벨업해요', '열쇠로 유물을 열어요'] };
-function tutStart() { tut = { step: 0, t: 0, first: null }; toast = null; }
+  en: ['Tap Recruit to open a seed pouch', 'Pick a friend to join', 'Drag your friend onto any tile — enemies come from the right', 'Recruit once more', 'Same friend again! Pick it', 'Drop it ON the same friend to MERGE ★2', 'All set — tap Battle!', 'Friends walk out and fight on their own', 'Great! Clear waves → earn acorns → recruit more. Good luck, Captain!', 'Level up friends with fragments', 'Open relics with keys', 'One more recruit — FREE! Pick the archer', 'Put the archer BEHIND the tank (closer to the wall)'],
+  ko: ['영입을 눌러 씨앗 주머니를 열어요', '함께할 동료를 하나 골라요', '동료를 아무 칸에나 끌어다 놓아요 — 적은 오른쪽에서 와요', '한 번 더 영입해요', '같은 동료가 나왔어요! 골라요', '같은 동료 위에 겹쳐 놓으면 ★2로 합성돼요', '준비 끝 — 전투!를 눌러요', '동료들이 걸어나가 알아서 싸워요', '좋아요! 웨이브를 막으면 도토리 → 더 영입. 행운을 빌어요, 대장!', '조각을 모아 동료를 레벨업해요', '열쇠로 유물을 열어요', '한 번 더 영입 — 무료! 궁수를 골라요', '궁수는 탱커 뒤(성벽 쪽 칸)에 놓아요'] };
+function tutStart() { tut = { step: 0, t: 0, first: null }; toast = null; try { if (g && MS && (MS.runs | 0) === 0 && (g.meta.stage | 0) <= 1 && !g.endless) g.tutRun = true; } catch (e) {} } // v0.24: first-ever run only (runs++ on any end) -> waves 1-2 x0.55 + one free recruit
 function tutTarget() {
   if (!tut || !g) return null; const s = tut.step;
-  if (s === 0 || s === 3) return { r: BTN_DEL };
+  if (s === 0 || s === 3 || (s === 11 && !g.offer)) return { r: BTN_DEL };
+  if (s === 11 && g.offer) return { r: offerRect(1) };
+  if (s === 12) { const b = g.bench.findIndex(Boolean); return { r: BR(Math.max(0, b)), to: cellRect(tut.back != null ? tut.back : 5) }; }
   if (s === 1 || s === 4) return { r: offerRect(s === 4 ? tut.same : 1) };
   if (s === 2) { const b = g.bench.findIndex(Boolean); return { r: BR(Math.max(0, b)), to: cellRect(1) }; }
   if (s === 5) { const b = g.bench.findIndex(Boolean); return { r: BR(Math.max(0, b)), to: cellRect(tut.cell != null ? tut.cell : 1) }; }
@@ -2000,10 +2002,12 @@ function tutUpdate(dt) {
   else if (s === 2 && g.board.some(Boolean)) { tut.cell = g.board.findIndex(Boolean); tut.first = g.board[tut.cell].k; tut.step = 3; tut.t = 0; }
   else if (s === 3 && g.offer) { tut.same = 0; g.offer[0] = tut.first; tut.step = 4; tut.t = 0; }
   else if (s === 4 && !g.offer && g.bench.some(Boolean)) { tut.step = 5; tut.t = 0; }
-  else if (s === 5 && g.board.some(u => u && u.star >= 2)) { tut.step = 6; tut.t = 0; }
-  else if (s === 5 && !g.bench.some(Boolean)) { tut.step = 6; tut.t = 0; }
+  else if (s === 5 && (g.board.some(u => u && u.star >= 2) || !g.bench.some(Boolean))) { const c = tut.cell != null ? tut.cell : 1; tut.back = c + 4 < 24 && !g.board[c + 4] ? c + 4 : g.board.findIndex((u, i) => !u && i > c); if (tut.back < 0) tut.back = null; if (g.tutRun && g.bench.some(b => !b)) { g.freeDeliv = 1; tut.step = 11; } else tut.step = 6; tut.t = 0; }
+  else if (s === 11 && g.offer && !tut.forced) { g.offer[1] = 'fox'; tut.forced = 1; }
+  else if (s === 11 && !g.offer && g.bench.some(Boolean) && tut.forced) { tut.step = 12; tut.t = 0; }
+  else if (s === 12 && (!g.bench.some(Boolean) && !drag)) { tut.step = 6; tut.t = 0; }
   // safety: if the step's target can no longer be reached (e.g. bench empty during a drag step), move on instead of locking the player
-  else if ((s === 2 || s === 5) && !g.bench.some(Boolean) && !drag) { tut.step = s === 2 ? 3 : 6; tut.t = 0; }
+  else if ((s === 2) && !g.bench.some(Boolean) && !drag) { tut.step = 3; tut.t = 0; }
   else if (s === 6 && g.phase === 'combat') { tut.step = 7; tut.t = 0; }
   else if (s === 7 && g.phase !== 'combat') { tut.step = 8; tut.t = 0; }
   else if (s === 8 && tut.t > 4) { tut = { step: 9, t: 0, lobby: 1 }; }
@@ -2019,7 +2023,7 @@ function drawTut() {
     // hand: tap or drag
     let hx = r.x + r.w / 2, hy = r.y + r.h / 2; if (T2.to) { const k = (clock * .7) % 1, e = k < .7 ? k / .7 : 1; hx += (T2.to.cx - hx) * e; hy += (T2.to.cy - hy) * e; } else hy += Math.sin(clock * 6) * 5;
     txt('👆', hx + 6, hy + 18, 30, '#fff', 'c', 800); }
-  const msg = TUTX[L][s]; if (msg) tutBox(msg, s === 2 || s === 5 ? 520 : s === 6 ? 600 : 150);
+  const msg = TUTX[L][s]; if (msg) tutBox(s === 7 && g.ultReady && g.ultReady() ? (L === 'ko' ? '⚡ 수호 스킬이 준비됐어요! 아래 버튼을 눌러 보세요' : '⚡ Guardian skill ready! Tap the button below') : msg, s === 2 || s === 5 || s === 12 ? 520 : s === 6 ? 600 : 150);
   btn(TUT_SKIP, L === 'ko' ? '건너뛰기 ⏭' : 'Skip ⏭', true, '#7a8f4a', 12);
 }
 function tutBox(msg, y) { rr(20, y, W - 40, 56, 14); cx.fillStyle = 'rgba(255,246,220,.97)'; cx.fill(); cx.strokeStyle = '#e8912c'; cx.lineWidth = 3; cx.stroke(); cx.font = '800 15px ' + FONT; let fs = 15; while (cx.measureText(msg).width > W - 70 && fs > 11) { fs -= .5; cx.font = '800 ' + fs + 'px ' + FONT; } txt(msg, W / 2, y + 28, fs, '#4a2e14', 'c', 800); }
@@ -2042,7 +2046,7 @@ cv.addEventListener('pointerdown', ev => {
   if (screen === 'title' && tab === 1 && !(tut && tut.lobby) && ultChipTap(p)) return;
   if (screen === 'title' && tab === 1 && !pnl && !(tut && tut.lobby) && inR(B_SWEEP, p.x, p.y)) { sweepTap(); return; }
   if (screen === 'title') { if (tut && tut.lobby) { const want = TAB_R(tut.step === 9 ? 0 : 2); if (inR(want, p.x, p.y)) { if (tut.step === 9) tut.step = 10; else tutFinish(); } } lobbyTap(p); return; }
-  if (g.phase === 'over') { if (canRevive()) { reviveTap(p); return; } if (endShown > .4) { if (endExtrasTap(p)) return; if (inR(END_AGAIN, p.x, p.y)) { if (g.endless) { if (!tryStart(false, true)) { screen = 'title'; tab = 1; } } else { const nx = endNext(); if (nx) { MS.stage = nx; SAVEM(); } if (!tryStart(isDaily)) { screen = 'title'; tab = 1; } } } else if (inR(END_HOME, p.x, p.y)) { screen = 'title'; tab = 1; if (tut && !tut.lobby) tut = { step: 9, t: 0, lobby: 1 }; }; } return; }
+  if (g.phase === 'over') { if (canRevive()) { reviveTap(p); return; } if (endShown > .4) { if (endExtrasTap(p)) return; if (inR(END_AGAIN, p.x, p.y)) { if (g.endless) { if (!tryStart(false, true)) { screen = 'title'; tab = 1; } } else { const nx = endNext(); if (nx) { MS.stage = nx; SAVEM(); } if (!tryStart(isDaily)) { screen = 'title'; tab = 1; } } } else if (inR(END_HOME, p.x, p.y)) { const lu = lvupHint24(); screen = 'title'; tab = 1; if (tut && !tut.lobby) tut = { step: 9, t: 0, lobby: 1 }; if (lu) { tab = 0; selU = lu.k; if (tut && tut.lobby && tut.step === 9) tut.step = 10; } }; } return; }
   if (inR(BTN_SPD, p.x, p.y)) { if (speed > 1 || !ES || ECON.speedOk(ES, Date.now())) speed = speed === 1 ? 2 : 1; else if (ECON.adSimple(ES, MS, 'speed', Date.now())) { SAVEE(); speed = 2; say('⏩ 2× 15:00 ' + (ES.adfree ? '' : '(' + et('test') + (PLAY ? ')' : ' 📺)')), 1.6); } else say('0 ' + et('left'), 1.2); sfx('tap'); return; }
   if (inR(BTN_SND, p.x, p.y)) { muted = !muted; try { localStorage.setItem('fg-mute', muted ? '1' : '0'); } catch (e) {} return; }
   if (tut && !tut.lobby && !tutAllow(p)) return;
@@ -2277,7 +2281,7 @@ function panelTap(p, now) { if (!pnl) return false; if (inR(PN_X, p.x, p.y) || !
       const a = f[5] || {}; if (PLAY && f[6]) { lobbyMsg = { msg: SOON_MSG(), life: 1.6 }; sfx('tap'); return; }
       if ((a.st || a.berry) && !f[3]) { lobbyMsg = { msg: et('notEnoughDia'), life: 1.2 }; return; } if (!f[3]) return;
       if (a.ent) { ECON.buyEnt(ES, a.ent); gotMsg(a.ent === 'adfree' ? '⚡' : '3×', et('bought')); }
-      else if (a.st) { const r = ECON.buyStones(ES, MS, a.st); if (r) { SAVEM(); SAVEE(); gotMsg('🔷', { stones: r.stones }); sfx('pour'); } }
+      else if (a.st) { const r = ECON.buyStones(ES, MS, a.st); if (r) { SAVEM(); SAVEE(); gotMsg('🔷', { stones: r.stones }); sfx('pouch'); } }
       else if (a.ad) showAd(a.ad, () => { const r = ECON.adSimple(ES, MS, a.ad, now); if (r) gotMsg('🎁', r); });
       else if (a.key) gotMsg('🗝', ECON.buyKeys(ES, MS, a.key));
       else if (a.berry) { MS.dia -= a.berry.dia; gotMsg('🫐', ECON.grant(ES, MS, { berry: a.berry.n })); }
@@ -2334,7 +2338,7 @@ function endExtrasTap(p) { if (!ES || !g._rew || isDaily) return false; const R2
   if (inR(END_DBL, p.x, p.y) && !g._dbl) { showAd('double', () => { const r = ECON.doubleRun(ES, MS, R2, g._runId || 'x'); if (r) { g._dbl = 1; R2.gold += r.gold || 0; R2.stones += r.stones || 0; R2.dia = (R2.dia || 0) + (r.dia || 0); SAVEM(); SAVEE(); sfx('pouch'); } }); return true; }
   if (inR(END_RR, p.x, p.y)) { const bi = (R2.boss || []).findIndex(b => !b.keys && !b.rr); if (bi >= 0) showAd('reroll', () => { const b = ECON.rerollBoss(ES, MS, META, R2, bi, g.meta.stage, Math.random, g._runId || 'x'); if (b) { if (b.keys) { R2.keys += b.keys * (R2.mult || 1); sfx('boss'); } SAVEM(); SAVEE(); say(rwStr(b) || '🪙', 1.5); } }); return true; }
   return false; }
-function drawRevive() { cx.fillStyle = 'rgba(20,12,4,.8)'; cx.fillRect(0, 0, W, H); txt(L === 'ko' ? '창고가 무너졌어요!' : 'The store fell!', W / 2, 340, 22, '#ff8a7a', 'c', 800, 4); txt(L === 'ko' ? '이어하면 같은 웨이브를 창고 체력 절반으로 다시 시작' : 'Continue: retry this wave with half store HP', W / 2, 380, 13, '#ffe2a8', 'c', 700, 2);
+function drawRevive() { cx.fillStyle = 'rgba(20,12,4,.8)'; cx.fillRect(0, 0, W, H); txt(L === 'ko' ? '성벽이 무너졌어요!' : 'The wall fell!', W / 2, 340, 22, '#ff8a7a', 'c', 800, 4); txt(L === 'ko' ? '이어하면 같은 웨이브를 성벽 체력 절반으로 다시 시작' : 'Continue: retry this wave with half wall HP', W / 2, 380, 13, '#ffe2a8', 'c', 700, 2);
   btn(END_CONT, et('continue') + ' ' + (ES.adfree ? '⚡' : (PLAY ? '🎁' : '📺')) + ECON.adLeft(ES, 'revive'), true, '#3fae4a', 18); btn(END_GIVE, et('giveUp'), true, '#7a8f4a', 15); }
 function reviveTap(p) { if (inR(END_CONT, p.x, p.y)) { showAd('revive', () => { ECON.useAd(ES, 'revive'); SAVEE(); g._revived = 1; g.revive(); endShown = 0; sfx('go'); }); return true; } if (inR(END_GIVE, p.x, p.y)) { g._gaveUp = 1; endShown = 0; return true; } return true; }
 
@@ -2426,7 +2430,7 @@ function drawUltBtn() { const r = ULT_BTN, k = g.ultK, rd = g.ultReady(), used =
   rr(r.x, r.y, r.w, r.h, 16); cx.strokeStyle = rd ? '#fff6c8' : 'rgba(255,255,255,.55)'; cx.lineWidth = rd ? 3 + Math.sin(clock * 8) : 2; cx.stroke();
   const lab = aim ? (L === 'ko' ? '취소' : 'Cancel') : used ? '2/2' : rd ? (L === 'ko' ? '사용!' : 'USE!') : Math.floor(gv * 100) + '%';
   txt(ULTI[k], r.x + 30, r.y + r.h / 2 + 1, rd ? 30 : 26, '#fff', 'c', 800, 0); txt(ULTN[L][k], r.x + 88, r.y + 20, L === 'ko' ? 13 : 11, '#fff6dc', 'c', 800, 3); txt(lab, r.x + 88, r.y + 44, rd ? 19 : 16, rd ? '#4a2a00' : '#ffffff', 'c', 900, rd ? 0 : 3);
-  if (ultTut === 2 && rd && !aim) { const b = Math.sin(clock * 7) * 6; txt('👇', r.x + r.w / 2, r.y - 22 + b, 26, '#fff', 'c', 800, 0); rr(r.x - 150, r.y - 74, 290, 36, 12); cx.fillStyle = 'rgba(30,20,10,.85)'; cx.fill(); txt(L === 'ko' ? '수호 스킬이 준비됐어요! 눌러 보세요' : 'Guardian skill ready! Tap it', r.x - 5, r.y - 56, 14, '#ffe9a8', 'c', 800); } }
+  if (ultTut === 2 && rd && !aim && !(tut && !tut.lobby)) { const b = Math.sin(clock * 7) * 6; txt('👇', r.x + r.w / 2, r.y - 22 + b, 26, '#fff', 'c', 800, 0); rr(r.x - 150, r.y - 74, 290, 36, 12); cx.fillStyle = 'rgba(30,20,10,.85)'; cx.fill(); txt(L === 'ko' ? '수호 스킬이 준비됐어요! 눌러 보세요' : 'Guardian skill ready! Tap it', r.x - 5, r.y - 56, 14, '#ffe9a8', 'c', 800); } }
 const BL_R = i => ({ x: 16 + i * 142, y: 262, w: 134, h: 236 });
 function drawBless(dt) { blessT += dt; const of = g.blessOffer || [];
   cx.fillStyle = 'rgba(10,15,8,.72)'; cx.fillRect(0, 0, W, H);
@@ -2648,7 +2652,7 @@ drawWaveBar = function () { const b = g && g.enemies.find(e => e.boss && !e.dead
   const ko = L === 'ko', col = BOSS_COL[b.k] || '255,90,70', q = Math.max(0, b.hp / b.max), x0 = 132, x1 = W - 26, y = 620;
   rr(12, 606, W - 24, 42, 14); cx.fillStyle = 'rgba(48,16,14,.86)'; cx.fill(); cx.strokeStyle = 'rgba(' + col + ',.75)'; cx.lineWidth = 2; cx.stroke();
   let nm = T[L].names[b.k] || b.k, fs = 13; cx.font = '900 ' + fs + 'px ' + FONT; while (cx.measureText(nm).width > 108 && fs > 9) { fs -= .5; cx.font = '900 ' + fs + 'px ' + FONT; } txt(nm, 24, 621, fs, '#ffe0d0', null, 900, 3);
-  txt(b.ph2 ? (ko ? '💢 분노' : '💢 ENRAGED') : (ko ? '1단계' : 'PHASE 1'), 24, 638, 10, b.ph2 ? '#ff8a6a' : '#ffd8a8', null, 800, 2);
+  txt(b.ph2 ? (ko ? '💢 분노' : '💢 ENRAGED') : (ko ? '1단계' : 'PHASE 1'), 24, 638, 12, b.ph2 ? '#ff8a6a' : '#ffd8a8', null, 800, 2);
   rr(x0, y - 2, x1 - x0, 18, 8); cx.fillStyle = 'rgba(0,0,0,.55)'; cx.fill(); if (q > 0) { rr(x0 + 2, y, Math.max(6, (x1 - x0 - 4) * q), 14, 6); cx.fillStyle = b.ph2 ? '#e8452f' : 'rgb(' + col + ')'; cx.fill(); }
   if (b.tsh > 0) { rr(x0 + 2, y, Math.max(4, (x1 - x0 - 4) * Math.min(1, b.tsh / b.max)), 5, 2); cx.fillStyle = b.tshTy === 'm' ? '#c9a8ff' : '#ffe08a'; cx.fill(); }
   const xm = x0 + (x1 - x0) / 2; cx.fillStyle = b.ph2 ? 'rgba(255,255,255,.35)' : '#fff'; cx.fillRect(xm - 1, y - 5, 2, 24); txt(Math.ceil(q * 100) + '%', x1 - 6, y + 7, 11, '#fff', 'r', 900, 3);
@@ -2673,9 +2677,26 @@ drawStore = function (hit) { drawStore20(hit); const list = mythReady(); mythPop
 function mythPopTap(p) { const list = mythReady(); if (!list.length || mythPopA < .5 || !inR(MYTH_POP, p.x, p.y)) return false; const m = list[0]; const dst = g.combine(m); if (!dst) return false; sfx('merge'); shake = .25; const r = dst.t === 'p' ? cellRect(dst.i) : BR(dst.i); pops.push({ x: r.x + r.w / 2, y: r.y + r.h / 2, life: 1, max: 1, col: '#ff5a5a', label: T[L].names[m] }); mythPopA = 0; return true; }
 
 // v0.22: 🔮 badge on board/bench units that are ingredients of a not-yet-made mythic (bright = usable ★2, dim = still ★1)
-function drawIngBadges22() { if (!FG.RECIPES || mythOpen) return; const need = FG.CFG.comboStar, isIng = k => Object.keys(FG.RECIPES).some(m => !g.myth[m] && FG.RECIPES[m].includes(k));
+function drawIngBadges22() { if (!FG.RECIPES || mythOpen || newbie24()) return; const need = FG.CFG.comboStar, isIng = k => Object.keys(FG.RECIPES).some(m => !g.myth[m] && FG.RECIPES[m].includes(k));
   const badge = (x, y, u) => { if (u.star > need || !isIng(u.k)) return; const on = u.star === need; cx.save(); cx.globalAlpha = on ? 1 : .6; cx.beginPath(); cx.arc(x, y, 9, 0, 7); cx.fillStyle = on ? '#7a3fb0' : 'rgba(70,40,100,.85)'; cx.fill(); cx.lineWidth = 2; cx.strokeStyle = on ? '#ffd84d' : 'rgba(255,255,255,.6)'; cx.stroke(); txt('🔮', x, y + 1, 10, '#fff', 'c', 800, 0); cx.restore(); };
   g.board.forEach((u, i) => { if (!u || (drag && drag.moved && drag.src.t === 'p' && drag.src.i === i)) return; const r = cellRect(i); badge(r.cx + 17, r.cy - 30, u); });
   g.bench.forEach((u, i) => { if (!u || (drag && drag.moved && drag.src.t === 'b' && drag.src.i === i)) return; const r = BR(i); badge(r.x + r.w - 10, r.y + 10, u); }); }
+
+// ---------- v0.24: first-3-minutes ----------
+function newbie24() { try { return !!(MS && (MS.maxClear | 0) < 1); } catch (e) { return false; } }
+function lvupHint24() { try { if (!MS || !window.META || (MS.runs | 0) > 3 || !g || g.endless) return null; const ks = Object.keys(UNITS).filter(k => UNITS[k].tier < 4 && META.canLevel(MS, k)); return ks.length ? { n: ks.length, k: ks[0] } : null; } catch (e) { return null; } }
+if (typeof mythReady === 'function') { const mr0 = mythReady; mythReady = function () { return newbie24() ? [] : mr0.apply(this, arguments); }; }
+// counter-success banner: only from sim fx that are emitted on real success (auto counters included); per-frame dedupe, 1 queued, priority order
+const CB_PRI = { wipeBreak: 4, sealOff: 3, charmOff: 3, tbreak: 2, ctotOff: 2, blocked: 1 }, CB_TXT = { ko: { wipeBreak: '삭제 시전을 끊었다!', sealOff: '봉인 해제!', charmOff: '매혹을 풀었다!', tbreak: '보호막 파괴!', ctotOff: '저주 토템 파괴!', blocked: '결계로 막았다!' }, en: { wipeBreak: 'Erase interrupted!', sealOff: 'Seal broken!', charmOff: 'Charm broken!', tbreak: 'Shield shattered!', ctotOff: 'Curse totem destroyed!', blocked: 'Blocked by the barrier!' } };
+let cBan = null, cBanQ = null, cBanLast = 0, cBanG = null;
+function cntScan24() { if (!g || screen !== 'game') return; if (cBanG !== g) { cBanG = g; cBan = cBanQ = null; } let best = null; for (const f of g.fx) { const pr = CB_PRI[f.t]; if (!pr || f._cb) continue; f._cb = 1; if (!best || pr > CB_PRI[best]) best = f.t; }
+  if (!best || g.phase !== 'combat') return; if (cBan) { if (!cBanQ || CB_PRI[best] > CB_PRI[cBanQ]) cBanQ = best; return; } if (best === 'blocked' && clock - cBanLast < 2.5) return; cBanShow(best); }
+function cBanShow(k) { cBan = { k, t0: clock }; cBanLast = clock; sfx('skill'); try { if (navigator.vibrate) navigator.vibrate(40); } catch (e) {} }
+function cntDraw24() { if (!cBan || screen !== 'game') return; const e = clock - cBan.t0; if (e > 1.1) { cBan = null; if (cBanQ) { const q = cBanQ; cBanQ = null; cBanShow(q); } return; }
+  const ko = L === 'ko'; if (e < .2) { cx.fillStyle = 'rgba(255,250,220,' + (.28 * (1 - e / .2)) + ')'; cx.fillRect(0, 0, W, H); }
+  const a = Math.min(1, e * 8, (1.1 - e) * 5), sc = e < .15 ? .7 + 2 * e : 1, y = 300; cx.save(); cx.globalAlpha = a; cx.translate(W / 2, y); cx.scale(sc, sc);
+  rr(-170, -42, 340, 84, 20); cx.fillStyle = 'rgba(40,24,10,.88)'; cx.fill(); cx.strokeStyle = '#ffd84d'; cx.lineWidth = 4; cx.stroke();
+  txt(ko ? '✨ 파훼 성공!' : '✨ COUNTERED!', 0, -12, 30, '#ffe066', 'c', 900, 5); txt(CB_TXT[ko ? 'ko' : 'en'][cBan.k], 0, 22, 15, '#fff6dc', 'c', 800, 3); cx.restore(); }
+{ const dt0 = drawTut; drawTut = function () { try { cntScan24(); cntDraw24(); } catch (e) {} return dt0.apply(this, arguments); }; }
 })();
 </script></body></html>
