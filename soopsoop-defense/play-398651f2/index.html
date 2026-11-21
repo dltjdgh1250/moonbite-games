@@ -176,7 +176,7 @@
 </script><script>// Forest Guardians — auto-battle defense simulation (deterministic, no DOM). v0.3 prototype (8 waves)
 (function (root) {
 'use strict';
-const VERSION = '0.20.0';
+const VERSION = '0.21.0';
 // ---------- PRNG: PCG32 ----------
 const M64 = (1n << 64n) - 1n, MUL = 6364136223846793005n;
 function PCG(seed, seq) { this.inc = ((BigInt(seq >>> 0) << 1n) | 1n) & M64; this.s = 0n; this.u32(); this.s = (this.s + BigInt(seed >>> 0) + (BigInt(seed >>> 0) << 32n)) & M64; this.u32(); }
@@ -828,7 +828,7 @@ const BOSS30 = BOSS10.concat(...[0, 1, 2, 3, 4].map(d => [BOSSM3[d][1], BOSSB3[d
 const VARS = ['fire', 'frost', 'psn', 'rage'];
 BAR_BLOCK.add('wipe'); BAR_BLOCK.add('seal'); BAR_BLOCK.add('charm'); BAR_BLOCK.add('ctotem');
 const KIT_PRI = new Set(['wipe', 'charm', 'seal']);
-Object.assign(CFG, { kitOn: true, resOn: true, resHpK: 1, wipeCast: 3, wipeDmg: 0.9, wipeBrk: [0.2, 0.3, 0.28, 0.32, 0.32], wipeStunP: 0.35, wipeKill: true, wallOn: true, wallGap: 6, wallMob: 1, wallBoss: 12, wallBossC: [5, 6, 7, 8, 10], towerOn: true, towerR: 5 * 32, towerAps: 1.5, towerPct: 1.02, w1Mob: 0.6, w2Mob: 0.8, midHpKs: [1.1, 1.15, 1.0], w2MobHi: 1, wipeCore: [0, 0, 0, 0, 0], wipeCoreB: [0, 0, 0, 0, 0], wipeAt: 0.6, wipeT: 25, sealDur: 4, charmDur: 4, charmN: 2, tshP: 0.15, tshT: 5, totemHp: [0.05, 0.08], ctotemDur: 12, focusDur: 6, varOn: true });
+Object.assign(CFG, { kitOn: true, resOn: true, resHpK: 1, wipeCast: 3, wipeDmg: 0.9, wipeBrk: [0.2, 0.3, 0.28, 0.32, 0.32], wipeStunP: 0.35, wipeKill: true, bossHpMid: [3, 3.5, 2.4, 2.4, 1.2], bossHpBig: [3.2, 3.4, 1.8, 2, 1.2], bossHpInf: 0.45, phase2: true, ph2Aps: 1.25, wallOn: true, wallGap: 6, wallMob: 1, wallBoss: 12, wallBossC: [10, 7, 6, 8, 9], towerOn: true, towerR: 5 * 32, towerAps: 1.5, towerPct: 1.02, w1Mob: 0.6, w2Mob: 0.8, midHpKs: [1.3, 1.15, 1.0], w2MobHi: 1, wipeCore: [0, 0, 0, 0, 0], wipeCoreB: [0, 0, 0, 0, 0], wipeAt: 0.6, wipeT: 25, sealDur: 4, charmDur: 4, charmN: 2, tshP: 0.15, tshT: 5, totemHp: [0.05, 0.08], ctotemDur: 12, focusDur: 6, varOn: true });
 G.bossPlan = function (stage) { const s = Math.max(1, stage | 0), d = Math.min(4, ((s - 1) / 10) | 0), j = (s - 1) % 10, a = BOSS_ASG[j]; return { mid: BOSSM3[d][a[0]], big: BOSSB3[d][a[1]], v: a[2] || null }; };
 G.bossInfo = function (w) {
   if (this.endless) { const i = Math.max(1, w / 5 | 0) - 1; return { k: BOSS30[i % 30], v: CFG.varOn && w >= 30 ? VARS[(Math.imul(i + 1, 2654435761) >>> 0) % 4] : null }; }
@@ -839,11 +839,14 @@ G.bossInfo = function (w) {
 G.bossKey = function () { const b = this.bossInfo(this.wave); this.bossVar = b.v; return b.k; };
 G.spawn18 = G.spawn; G.spawn = function (q) { this.spawn18(q); const e = this.enemies[this.enemies.length - 1]; if (e && !e.boss && !q.sum && this.w10 && this.wave >= 3 && this.meta.stage <= 30) { const k = CFG.midHpKs[Math.min(2, ((this.meta.stage - 1) / 10) | 0)]; if (k !== 1) e.hp = e.max = Math.round(e.max * k); } if (!e || !e.boss) return; const D = BOSSDEF[e.k];
   if (D && CFG.resOn && !CFG.oldRes) { const r = RES[D.res]; e.armor = r[0]; e.mres = r[1]; e.res = D.res; if (CFG.resHpK !== 1) { e.hp = e.max = Math.round(e.max * CFG.resHpK); } }
+  { const d = Math.min(4, stageMul(this.meta.stage).d), hk = (ENEMIES[e.k].mid ? CFG.bossHpMid : CFG.bossHpBig)[d] * (this.endless ? CFG.bossHpInf : 1); if (hk !== 1 && !e.totem) { e.hp = e.max = Math.round(e.max * hk); } }
   e.var = this.bossVar || null; e.age = 0; e.kt = {}; if (D && D.sk) D.sk.forEach((s, i) => { e.kt[i] = s[2] || 0; }); if (e.var === 'fire') e.kt.vf = 3; if (e.var === 'psn') e.kt.vp = 4; };
 // boss kit runner (runs after the classic per-boss AI)
 G.bossAI18 = G.bossAI; G.bossAI = function (a, dt) {
   if (a.wcast) return; // channeling the wipe: nothing else
-  this.bossAI18(a, dt); if (!CFG.kitOn) return; const D = BOSSDEF[a.k]; a.age = (a.age || 0) + dt;
+  this.bossAI18(a, dt);
+  if (CFG.phase2 && !a.ph2 && a.hp < a.max * 0.5 && !a.untarget) { a.ph2 = 1; a.aps *= CFG.ph2Aps; a.spd *= 1.1; if (a.kt) for (const i in a.kt) if (!isNaN(+i)) { a.kt[i] = Math.min(a.kt[i], 0.6 + 0.4 * i); break; } this.fx.push({ t: 'rage2', id: a.id, x: a.x, y: a.y, k: a.k, life: 1.6 }); this.hsReq += 40; this.stats.ph2 = (this.stats.ph2 || 0) + 1; }
+  if (!CFG.kitOn) return; const D = BOSSDEF[a.k]; a.age = (a.age || 0) + dt;
   const al = this.allies.filter(u => !u.dead); if (!al.length) return; const T = this.t;
   const tgt = () => { if (a.tgt && !a.tgt.dead && a.tgt.team === 0) return a.tgt; let b = al[0], bd = 1e9; for (const u of al) { const d = dist(a, u); if (d < bd) { bd = d; b = u; } } return b; };
   const far = () => { let b = al[0], bd = -1; for (const u of al) { const d = dist(a, u); if (d > bd || (d === bd && u.id < b.id)) { bd = d; b = u; } } return b; };
@@ -1997,6 +2000,7 @@ cv.addEventListener('pointerdown', ev => {
   if (mythOpen && g.phase === 'prep') { if (inR(MY_X, p.x, p.y)) { mythOpen = false; sfx('tap'); return; }
     Object.keys(FG.RECIPES).forEach((m, i) => { if (inR(MY_BTN(i), p.x, p.y) && g.canCombine(m)) { const dst = g.combine(m); mythOpen = false; sfx('merge'); shake = .25; const r = dst.t === 'p' ? cellRect(dst.i) : BR(dst.i); pops.push({ x: r.x + r.w / 2, y: r.y + r.h / 2, life: 1, max: 1, col: '#ff5a5a', label: T[L].names[m] }); } }); return; }
   if (g.phase === 'prep') {
+    if (mythPopTap(p)) return;
     if (inR(BTN_MYTH, p.x, p.y)) { mythOpen = true; tip = null; toast = null; sfx('tap'); return; }
     if (g.boxes > 0 && inR(BTN_BOX, p.x, p.y)) { if (g.openBox()) { pickAnim = 0; sfx('pouch'); } else say(t('boxFull')); return; }
     if (inR(BTN_SCAN, p.x, p.y)) { if (g.canScan()) { g.scanArmed = !g.scanArmed; sfx('tap'); if (g.scanArmed) say(t('scanInfo'), 3); } return; }
@@ -2578,5 +2582,35 @@ drawUltFx = function (dt) { drawUltFx18(dt); const ty = SY(FG.FW / 2, 0) - 4, tx
     cx.strokeStyle = 'rgba(255,240,200,' + (1 - k) * .6 + ')'; cx.lineWidth = 2; cx.beginPath(); cx.moveTo(tx + (X - tx) * Math.max(0, q - .35), ty + (Y - ty) * Math.max(0, q - .35)); cx.lineTo(hx, hy); cx.stroke();
     cx.fillStyle = '#5a3a1e'; cx.save(); cx.translate(hx, hy); cx.rotate(Math.atan2(Y - ty, X - tx)); cx.fillRect(-10, -1, 12, 2); cx.fillStyle = '#d8d8d8'; cx.beginPath(); cx.moveTo(4, 0); cx.lineTo(-1, -3); cx.lineTo(-1, 3); cx.fill(); cx.restore();
     if (k > .45 && !f._s) { f._s = 1; if (Math.random() < .5) sfx('shoot'); } } };
+
+// ---------- v0.21: boss HP panel (with 50% phase mark), phase-2 banner, mythic-ready popup ----------
+const drawWaveBar20 = drawWaveBar;
+drawWaveBar = function () { const b = g && g.enemies.find(e => e.boss && !e.dead && !e.untarget2); if (!b) return drawWaveBar20();
+  const ko = L === 'ko', col = BOSS_COL[b.k] || '255,90,70', q = Math.max(0, b.hp / b.max), x0 = 132, x1 = W - 26, y = 620;
+  rr(12, 606, W - 24, 42, 14); cx.fillStyle = 'rgba(48,16,14,.86)'; cx.fill(); cx.strokeStyle = 'rgba(' + col + ',.75)'; cx.lineWidth = 2; cx.stroke();
+  let nm = T[L].names[b.k] || b.k, fs = 13; cx.font = '900 ' + fs + 'px ' + FONT; while (cx.measureText(nm).width > 108 && fs > 9) { fs -= .5; cx.font = '900 ' + fs + 'px ' + FONT; } txt(nm, 24, 621, fs, '#ffe0d0', null, 900, 3);
+  txt(b.ph2 ? (ko ? '💢 분노' : '💢 ENRAGED') : (ko ? '1단계' : 'PHASE 1'), 24, 638, 10, b.ph2 ? '#ff8a6a' : '#ffd8a8', null, 800, 2);
+  rr(x0, y - 2, x1 - x0, 18, 8); cx.fillStyle = 'rgba(0,0,0,.55)'; cx.fill(); if (q > 0) { rr(x0 + 2, y, Math.max(6, (x1 - x0 - 4) * q), 14, 6); cx.fillStyle = b.ph2 ? '#e8452f' : 'rgb(' + col + ')'; cx.fill(); }
+  if (b.tsh > 0) { rr(x0 + 2, y, Math.max(4, (x1 - x0 - 4) * Math.min(1, b.tsh / b.max)), 5, 2); cx.fillStyle = b.tshTy === 'm' ? '#c9a8ff' : '#ffe08a'; cx.fill(); }
+  const xm = x0 + (x1 - x0) / 2; cx.fillStyle = b.ph2 ? 'rgba(255,255,255,.35)' : '#fff'; cx.fillRect(xm - 1, y - 5, 2, 24); txt(Math.ceil(q * 100) + '%', x1 - 6, y + 7, 11, '#fff', 'r', 900, 3);
+  if (!b.ph2) txt(ko ? '50% 분노' : '50% RAGE', xm + 4, y + 26, 9, '#ffb09a', null, 800, 2); };
+const drawUltFx20 = drawUltFx;
+drawUltFx = function (dt) { drawUltFx20(dt); const ko = L === 'ko';
+  for (const f of g.fx) { if (f.t !== 'rage2') continue; const k = 1 - f.life / 1.6;
+    if (!f._m) { f._m = 1; const say = (BOSS_SAY[L][f.k] || [])[1]; bossMsg = { v: (ko ? '💢 분노! ' : '💢 ENRAGED! ') + (say || ''), life: 2, col: '255,90,60' }; sfx('boss'); shake = Math.max(shake, .45); }
+    const a = Math.max(0, .35 * (1 - k)); cx.fillStyle = 'rgba(255,40,20,' + a + ')'; cx.fillRect(0, GY0 - 10, W, 602 - GY0);
+    const X = SX(f.x, f.y), Y = SY(f.x, f.y); cx.strokeStyle = 'rgba(255,120,60,' + (1 - k) + ')'; cx.lineWidth = 5; cx.beginPath(); cx.ellipse(X, Y, 30 + 90 * k, 14 + 40 * k, 0, 0, 7); cx.stroke(); } };
+// mythic ready: a side card pops up as soon as a mythic can be made (one tap combines)
+const MYTH_POP = { x: 346, y: 240, w: 96, h: 132 }; let mythPopA = 0;
+function mythReady() { return g && g.phase === 'prep' && !g.offer && !mythOpen && screen === 'game' ? g.combinable() : []; }
+const drawStore20 = drawStore;
+drawStore = function (hit) { drawStore20(hit); const list = mythReady(); mythPopA = list.length ? Math.min(1, mythPopA + .08) : 0; if (!list.length) return; const m = list[0], r = MYTH_POP, ko = L === 'ko', bob = Math.sin(clock * 4) * 3;
+  cx.save(); cx.globalAlpha = mythPopA; cx.translate((1 - mythPopA) * 60, bob); glowDot(r.x + r.w / 2, r.y + 46, 56, '190,120,255', .55 + .2 * Math.sin(clock * 6));
+  rr(r.x, r.y, r.w, r.h, 14); cx.fillStyle = 'rgba(70,30,110,.94)'; cx.fill(); cx.strokeStyle = '#ffd84d'; cx.lineWidth = 3; cx.stroke();
+  txt(ko ? '신화 가능!' : 'MYTHIC!', r.x + r.w / 2, r.y + 14, 12, '#ffe066', 'c', 900, 3); sprite(m, r.x + r.w / 2, r.y + 58, 52, { frame: Math.floor(clock * 6) });
+  let nm = T[L].names[m] || m, fs = 11; cx.font = '900 ' + fs + 'px ' + FONT; while (cx.measureText(nm).width > r.w - 8 && fs > 8) { fs -= .5; cx.font = '900 ' + fs + 'px ' + FONT; } txt(nm, r.x + r.w / 2, r.y + 92, fs, '#fff', 'c', 900, 3);
+  const bb = { x: r.x + 8, y: r.y + 102, w: r.w - 16, h: 24 }; rr(bb.x, bb.y, bb.w, bb.h, 10); cx.fillStyle = '#c0392b'; cx.fill(); txt((ko ? '조합 ' : 'Make ') + '🌰' + FG.CFG.comboCost, bb.x + bb.w / 2, bb.y + 12, 11, '#fff', 'c', 900, 2);
+  if (list.length > 1) txt('+' + (list.length - 1), r.x + r.w - 8, r.y + 14, 11, '#ffe066', 'r', 900, 2); cx.restore(); };
+function mythPopTap(p) { const list = mythReady(); if (!list.length || mythPopA < .5 || !inR(MYTH_POP, p.x, p.y)) return false; const m = list[0]; const dst = g.combine(m); if (!dst) return false; sfx('merge'); shake = .25; const r = dst.t === 'p' ? cellRect(dst.i) : BR(dst.i); pops.push({ x: r.x + r.w / 2, y: r.y + r.h / 2, life: 1, max: 1, col: '#ff5a5a', label: T[L].names[m] }); mythPopA = 0; return true; }
 })();
 </script></body></html>
