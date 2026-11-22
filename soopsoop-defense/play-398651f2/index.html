@@ -176,7 +176,7 @@
 </script><script>// Forest Guardians — auto-battle defense simulation (deterministic, no DOM). v0.3 prototype (8 waves)
 (function (root) {
 'use strict';
-const VERSION = '0.24.1';
+const VERSION = '0.25.0';
 // ---------- PRNG: PCG32 ----------
 const M64 = (1n << 64n) - 1n, MUL = 6364136223846793005n;
 function PCG(seed, seq) { this.inc = ((BigInt(seq >>> 0) << 1n) | 1n) & M64; this.s = 0n; this.u32(); this.s = (this.s + BigInt(seed >>> 0) + (BigInt(seed >>> 0) << 32n)) & M64; this.u32(); }
@@ -270,7 +270,7 @@ const BAR_BLOCK = new Set(['curse', 'slam', 'pool', 'freeze', 'charge', 'erupt',
 // easy/normal (1-20): HP only; hard+ (21-50): ATK grows too; special bosses from hard
 function stageMul(s) { s = Math.max(1, Math.min(MAX_STAGE, s | 0 || 1)); return { hp: Math.pow(CFG.hpG, Math.min(s, 40) - 1) * Math.pow(CFG.hpG2, Math.max(0, s - 40)) * (s <= 20 ? (CFG.earlyHp || 1) : 1), atk: s <= 20 ? 1 : Math.pow(CFG.atkG, s - 20), rew: 1 + 0.03 * (s - 1), d: ((s - 1) / 10) | 0 }; }
 const stageName = s => ((s - 1) / 10 | 0) + 1 + '-' + ((s - 1) % 10 + 1);
-function normMeta(m) { m = m || {}; const lv = {}, rel = {}; for (const k in UNITS) lv[k] = Math.max(1, Math.min(15, (m.lv && m.lv[k]) | 0 || 1)); for (const r of RELICS) rel[r] = Math.max(0, Math.min(REL_MAX, (m.rel && m.rel[r]) | 0)); const stage = Math.max(1, Math.min(MAX_STAGE, (m.stage | 0) || ((m.diff | 0) * 10 + 1))); const gear = {}; if (m.gear) for (const k in m.gear) if (UNITS[k] && UNITS[k].tier === 4 && m.gear[k]) { const g = m.gear[k], o = {}; for (const q of ['dmg', 'hp', 'aspd', 'crit', 'critd', 'boss']) o[q] = Math.max(0, Math.min(1, +g[q] || 0)); gear[k] = o; } return { lv, rel, stage, diff: ((stage - 1) / 10) | 0, gear }; }
+function normMeta(m) { m = m || {}; const lv = {}, rel = {}; for (const k in UNITS) lv[k] = Math.max(1, Math.min(15, (m.lv && m.lv[k]) | 0 || 1)); for (const r of RELICS) rel[r] = Math.max(0, Math.min(REL_MAX, (m.rel && m.rel[r]) | 0)); const stage = Math.max(1, Math.min(MAX_STAGE, (m.stage | 0) || ((m.diff | 0) * 10 + 1))); const gear = {}; if (m.gear) for (const k in m.gear) if (UNITS[k] && UNITS[k].tier === 4 && m.gear[k]) { const g = m.gear[k], o = {}; for (const q of ['dmg', 'hp', 'aspd', 'crit', 'critd', 'boss']) o[q] = Math.max(0, Math.min(1, +g[q] || 0)); gear[k] = o; } let mythU = null; if (m.mythU && typeof m.mythU === 'object') { mythU = {}; for (const k in m.mythU) if (UNITS[k] && UNITS[k].tier === 4 && m.mythU[k]) mythU[k] = 1; } return { lv, rel, stage, diff: ((stage - 1) / 10) | 0, gear, mythU }; }
 const FIXED_DAILY = (() => { const lv = {}, rel = {}; for (const k in UNITS) lv[k] = 5; for (const r of RELICS) rel[r] = 3; return { lv, rel, diff: 0 }; })();
 // wave: [hpMul, [[type,count],...], bossHp]
 // 20 waves, generated: [hpMul, [[type,count],...], bossHp]
@@ -296,7 +296,7 @@ function endlessWave(w) { if (w <= 20) return WAVES20[w]; const k = Math.pow(INF
 
 function Game(seedStr, meta) {
   this.endless = !!(meta && meta.endless); if (this.endless) meta = Object.assign({}, meta, { stage: INF.stage });
-  this.meta = normMeta(meta); const RL = this.meta.rel;
+  this.meta = normMeta(meta); this.mythAllow = this.meta.mythU; const RL = this.meta.rel;
   const seed = hashStr(seedStr); this.seedStr = seedStr;
   this.rD = new PCG(seed, 1); this.rS = new PCG(seed, 2); this.rC = new PCG(seed, 3); this.rB = new PCG(seed, 4); this.w10 = !this.endless && CFG.maxWave === 10; this.WV = this.w10 ? WAVES : WAVES20;
   this.ug = 0; this.ultK = (meta && meta.ult) || 'bolt'; this.ultN = 0; this.ultQ = []; this.barQ = 0; this.barN = 0; this.barT = -1; this.barLog = []; this.mistT = -1; this.ultLog = []; this.ultT = []; this.bl = {}; this.blessOffer = null; this.blLog = []; this.stepN = 0; this.leakAcc = 0; this.streak = 0; this.lastKillT = -9; this.hsReq = 0; this.autoUlt = !!(meta && meta.autoUlt);
@@ -338,7 +338,7 @@ G.pick = function (i) { if (!this.offer) return false; const s = this.bench.find
 G.canOpenBox = function () { return this.phase === 'prep' && !this.offer && this.boxes > 0 && this.bench.some(b => !b); };
 G.openBox = function () { if (!this.canOpenBox()) return false; this.boxes--; this.stats.boxes++; const L = TIER_UNITS[3].slice(), o = []; for (let i = 0; i < 3; i++) o.push(L.splice(this.rD.int(L.length), 1)[0]); this.offer = o; this.offerSrc = 'box'; return true; };
 // combination: returns the plan [{t,i}] of the 3 ingredients or null
-G.comboPlan = function (m) { const R = RECIPES[m]; if (!R || this.myth[m]) return null; const used = [], plan = [];
+G.comboPlan = function (m) { const R = RECIPES[m]; if (!R || this.myth[m]) return null; if (this.mythAllow && !this.mythAllow[m]) return null; if (CFG.mythAllow && !CFG.mythAllow.includes(m)) return null; /* v0.25: mythics must be unlocked (meta) to combine */ const used = [], plan = [];
   for (const k of R) { let best = null, bs = 9; const all = this.board.map((u, i) => ({ t: 'p', i, u })).concat(this.bench.map((u, i) => ({ t: 'b', i, u })));
     for (const c of all) { if (!c.u || c.u.k !== k || used.includes(c.u) || (CFG.comboExact ? c.u.star !== CFG.comboStar : c.u.star < (UNITS[k].tier <= 1 ? CFG.comboStarLow : CFG.comboStar))) continue; const sc = c.u.star + (c.t === 'b' ? 0 : 0.5); if (sc < bs) { bs = sc; best = c; } }
     if (!best) return null; used.push(best.u); plan.push({ t: best.t, i: best.i }); } return plan; };
@@ -963,6 +963,17 @@ const MSC = [5, 8, 12, 16, 20, 25, 30, 36, 42, 50, 58, 66, 75, 85]; // mythic st
 const STONE_MUL = [1, 1.5, 2];
 // v0.23 (대표 2026-11-22): mythic stones come ONLY from the diamond shop (ECON.buyStones). Old free sources -> gold/diamonds.
 const MIG23_DIA = 10, CODEX_DIA = 30; // refund per stone held/spent at migration; first-craft codex diamonds
+// v0.25 (운빨식): unit fragments from runs/sweeps come as invitations 🎟 (1 = 10 cards = 10 fragments, same tier weights). Mythics must be UNLOCKED to combine in a run:
+// chapter 1 clear -> wolfking, chapter 2 clear -> sage, others: diamonds (pick) or a 0.3%/card mythic card in recruit.
+const IVT_DIV = 14, IVT_FIRST = 2, CH_MYTH = ['wolfking', 'sage'], CH_REW = { ivt: 10, dia: 100 }, MYTH_CARD_P = 0.0003, MYTH_DUP_DIA = 100, MYTH_BUY = 3000;
+function mythOK(m, k) { return !!(m.mythU && m.mythU[k]); }
+function lockedMyths(m) { return MYTHS.filter(k => !mythOK(m, k)); }
+function unlockMyth(m, k) { if (!FG.UNITS[k] || FG.UNITS[k].tier !== 4 || mythOK(m, k)) return false; m.mythU = m.mythU || {}; m.mythU[k] = 1; return true; }
+function buyMyth(m, k) { if (!FG.UNITS[k] || FG.UNITS[k].tier !== 4 || mythOK(m, k) || !(m.dia >= MYTH_BUY)) return false; m.dia -= MYTH_BUY; unlockMyth(m, k); return true; }
+function recruit(m, nIvt, rnd) { rnd = rnd || Math.random; nIvt = nIvt | 0; if (nIvt < 1 || !((m.ivt | 0) >= nIvt)) return null; m.ivt -= nIvt; const cards = [], frags = {}, newMyth = []; let dia = 0, conv = 0;
+  for (let i = 0; i < nIvt * 10; i++) { if (rnd() < MYTH_CARD_P) { const L = lockedMyths(m); if (L.length) { const k = L[Math.floor(rnd() * L.length)]; unlockMyth(m, k); newMyth.push(k); cards.push({ myth: k }); } else { dia += MYTH_DUP_DIA; cards.push({ dia: MYTH_DUP_DIA }); } continue; }
+    const k = pickUnit(rnd, FRAG_UNITS); if (addFrag(m, k, 1) === 'gold') { conv++; cards.push({ k, gold: MAXED_GOLD }); } else { frags[k] = (frags[k] || 0) + 1; cards.push({ k }); } }
+  m.dia = (m.dia || 0) + dia; return { cards, frags, newMyth, dia, conv, gold: conv * MAXED_GOLD }; }
 const stonesSpent = lv => MSC.slice(0, Math.max(0, Math.min(15, lv | 0) - 1)).reduce((a, b) => a + b, 0);
 const RF = [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 7, 9, 11, 12]; // relic fragments for level (i)->(i+1), 0..15; 75 per relic
 const REL_MAX = FG.REL_MAX || 15;
@@ -973,7 +984,7 @@ const GOLD_MUL = [1, 1.3, 1.5], FRAG_MUL = [1, 1.5, 2], TIER_W = [0.45, 0.30, 0.
 const UNITS = Object.keys(FG.UNITS), FRAG_UNITS = UNITS.filter(k => FG.UNITS[k].tier < 4), MYTHS = UNITS.filter(k => FG.UNITS[k].tier === 4);
 function fresh(now) { const lv = {}, fr = {}, rel = {}, rf = {}; for (const k of UNITS) { lv[k] = 1; fr[k] = 0; } for (const r of FG.RELICS) { rel[r] = 0; rf[r] = 0; }
   const codex = {}; for (const k of MYTHS) codex[k] = 0;
-  return { mig23: 1, mig23R: 0, keyFlags: [0, 0, 0], v: SAVE_V, gold: 0, keys: 3, freeBank: 0, keyT: now != null ? now : Date.now(), lv, fr, rel, rf, stones: 0, tix: 0, dia: 0, codex, cleared: [0, 0, 0, 0, 0], ids: {}, diff: 0, stage: 1, maxClear: 0, stFirst: '', runs: 0 }; }
+  return { mig23: 1, mig23R: 0, keyFlags: [0, 0, 0], v: SAVE_V, gold: 0, keys: 3, freeBank: 0, keyT: now != null ? now : Date.now(), lv, fr, rel, rf, stones: 0, tix: 0, dia: 0, ivt: 0, mythU: {}, chRew: [0, 0, 0, 0, 0], mig25: 1, codex, cleared: [0, 0, 0, 0, 0], ids: {}, diff: 0, stage: 1, maxClear: 0, stFirst: '', runs: 0 }; }
 function fix(m, now) { const f = fresh(now); if (!m || typeof m !== 'object') return f;
   for (const k of ['gold', 'keys', 'freeBank', 'keyT', 'diff', 'runs', 'stones', 'tix', 'dia', 'stage', 'maxClear']) if (typeof m[k] === 'number' && isFinite(m[k])) f[k] = m[k];
   for (const k of MYTHS) if (m.codex && m.codex[k]) f.codex[k] = 1;
@@ -989,6 +1000,9 @@ function fix(m, now) { const f = fresh(now); if (!m || typeof m !== 'object') re
   f.mig23 = m.mig23 ? 1 : 0; f.mig23R = typeof m.mig23R === 'number' ? m.mig23R : 0;
   if (!f.mig23 && m.v != null) { let n = f.stones; for (const k of MYTHS) { n += stonesSpent(f.lv[k]); f.lv[k] = 1; } f.stones = 0; f.dia += n * MIG23_DIA; f.mig23R = n * MIG23_DIA; }
   f.mig23 = 1;
+  f.ivt = Math.max(0, (typeof m.ivt === 'number' && isFinite(m.ivt) ? m.ivt : 0) | 0); f.mythU = {}; for (const k of MYTHS) if (m.mythU && m.mythU[k]) f.mythU[k] = 1; f.chRew = [0, 1, 2, 3, 4].map(i => Array.isArray(m.chRew) && m.chRew[i] ? 1 : 0);
+  if (!m.mig25 && m.v != null) { for (const k of MYTHS) if (f.codex[k]) f.mythU[k] = 1; CH_MYTH.forEach((k, i) => { if (f.maxClear >= (i + 1) * 10) { f.mythU[k] = 1; f.chRew[i] = 1; } }); for (let c = 2; c < 5; c++) if (f.maxClear >= (c + 1) * 10) f.chRew[c] = 1; } // v0.25 once: crafted mythics stay unlocked, cleared chapters grant their mythic (no chest retro-grant)
+  f.mig25 = 1;
   f.v = SAVE_V; return f; }
 function load(now) { try { return fix(JSON.parse(root.localStorage.getItem(SAVE)), now); } catch (e) { return fresh(now); } }
 function save(m) { try { root.localStorage.setItem(SAVE, JSON.stringify(m)); } catch (e) {} }
@@ -1000,7 +1014,7 @@ function claimFree(m) { const n = m.freeBank; m.keys += n; m.freeBank = 0; retur
 const ENV = k => typeof process !== 'undefined' && process.env && process.env[k]; const COST = { a: +(ENV('COSTA') || 1.5), b: +(ENV('COSTB') || 0.5) }; // v0.15: unit level cost x (a + b(l-1)) -> F2P unit max takes months
 const CK = l => COST.a + COST.b * (l - 1);
 function unitCost(m, k) { const l = m.lv[k]; if (l >= 15) return null; return FG.UNITS[k].tier === 4 ? { s: MSC[l - 1] } : { f: Math.round(UF[l - 1] * CK(l)), g: Math.round(UG[l - 1] * CK(l) / 10) * 10 }; }
-function canLevel(m, k) { const c = unitCost(m, k); if (FG.UNITS[k].tier === 4 && !(m.codex && m.codex[k])) return false; /* v0.24.1: mythics must be discovered (crafted in a run) before leveling */ return !!c && (c.s != null ? m.stones >= c.s : m.fr[k] >= c.f && m.gold >= c.g); }
+function canLevel(m, k) { const c = unitCost(m, k); if (FG.UNITS[k].tier === 4 && !mythOK(m, k)) return false; /* v0.24.1: mythics must be discovered (crafted in a run) before leveling */ return !!c && (c.s != null ? m.stones >= c.s : m.fr[k] >= c.f && m.gold >= c.g); }
 function addFrag(m, k, n) { if (m.lv[k] >= 15) { m.gold += MAXED_GOLD * n; return 'gold'; } m.fr[k] += n; return 'frag'; }
 function levelUp(m, k) { if (!canLevel(m, k)) return false; const c = unitCost(m, k); if (c.s != null) { m.stones -= c.s; m.lv[k]++; return true; } m.fr[k] -= c.f; m.gold -= c.g; m.lv[k]++;
   if (m.lv[k] >= 15 && m.fr[k] > 0) { m.gold += m.fr[k] * MAXED_GOLD; m.fr[k] = 0; } return true; }
@@ -1028,31 +1042,32 @@ function sweepReward(m, st, X, id) { if (!id) return null; m.ids = m.ids || {}; 
   const rnd = sweepRng(id), sm = FG.stageMul(st).rew, q = v => { const f = Math.floor(v); return f + (rnd() < v - f ? 1 : 0); };
   let gold = Math.round((12 * 20 + 100) * sm * REW.k * X), n = q((9 + 12) * sm * REW.k * REW.f * X), stones = 0, dia = 0;
   for (let i = 0; i < 4; i++) { const b = bossRoll(st, rnd); if (b.keys) gold += Math.round(40 * sm * X); if (b.dia) dia += q(b.dia * X * REW.f); if (b.stones) stones += q(b.stones * X * REW.f); if (b.gold) gold += Math.round(b.gold * X); }
-  const frags = {}; let conv = 0; for (let i = 0; i < n; i++) { const k = pickUnit(rnd, FRAG_UNITS); if (addFrag(m, k, 1) === 'gold') conv++; else frags[k] = (frags[k] || 0) + 1; }
+  const frags = {}; let conv = 0; let ivt = Math.floor(n / IVT_DIV); if (rnd() < n / IVT_DIV - ivt) ivt++; m.ivt = (m.ivt | 0) + ivt;
   m.gold += gold; m.stones = (m.stones || 0) + stones; m.dia = (m.dia || 0) + dia; m.ids['r' + id] = 1;
-  return { gold, stones, dia, frags, n, conv }; }
+  return { gold, stones, dia, frags, n, conv, ivt }; }
 function reward(m, res, rnd) { rnd = rnd || Math.random; if (res.id && m.ids && m.ids['r' + res.id]) return null; const st = stageOf(m, res), sm = FG.stageMul(st).rew, w = res.wave | 0, X = Math.max(1, Math.min(3, res.mult | 0 || 1));
   let gold = Math.max(0, Math.round((12 * w + (res.win ? 100 : 0)) * sm * REW.k) * X);
-  let n = Math.floor((9 + Math.floor(0.6 * w)) * sm * REW.k * REW.f) * X; const frags = {}; let conv = 0, keys = 0, dia = 0, first = false;
+  let n = Math.floor((9 + Math.floor(0.6 * w)) * sm * REW.k * REW.f) * X; const frags = {}; let conv = 0, keys = 0, dia = 0, first = false, chest = null;
   const bigBoss = (res.bossW || []).filter(x => x === 10 || x === 20).length;
   let stones = 0; const boss = [];
   for (let i = 0; i < (res.bossW || []).length; i++) { const b = bossRoll(st, rnd); boss.push(b); keys += (b.keys || 0) * X; dia += (b.dia || 0) * X; stones += (b.stones || 0) * X; gold += (b.gold || 0) * X; }
   { const qq = v => { const f2 = Math.floor(v); return f2 + (rnd() < v - f2 ? 1 : 0); }; stones = qq(stones * REW.f); dia = qq(dia * REW.f); }
   if (res.win) { const fl = m.stFirst.split(''); if (fl[st - 1] !== '1') { fl[st - 1] = '1'; m.stFirst = fl.join(''); first = true; gold += 50 + 10 * st; n += 5; dia += REW.fd(st); }
+    if (st % 10 === 0) { const c = st / 10 - 1; if (!m.chRew[c]) { m.chRew[c] = 1; chest = { c, ivt: CH_REW.ivt, dia: CH_REW.dia, myth: null }; dia += CH_REW.dia; if (CH_MYTH[c] && unlockMyth(m, CH_MYTH[c])) chest.myth = CH_MYTH[c]; } }
     if (st > m.maxClear) m.maxClear = st; m.cleared[((st - 1) / 10) | 0] = 1; }
   m.gold += gold;
-  for (let i = 0; i < n; i++) { const k = pickUnit(rnd, FRAG_UNITS); if (addFrag(m, k, 1) === 'gold') conv++; else frags[k] = (frags[k] || 0) + 1; }
+  let ivt = Math.floor(n / IVT_DIV); if (rnd() < n / IVT_DIV - ivt) ivt++; if (first) ivt += IVT_FIRST; if (chest) ivt += chest.ivt; m.ivt = (m.ivt | 0) + ivt; // v0.25: fragments now come through recruit
   const newCodex = [];
   for (const k of res.myths || []) if (m.codex && !m.codex[k] && FG.UNITS[k] && FG.UNITS[k].tier === 4) { m.codex[k] = 1; dia += CODEX_DIA; newCodex.push(k); }
   m.stones = (m.stones || 0) + stones; m.keys += keys; m.dia = (m.dia || 0) + dia; m.runs++; if (res.id) { m.ids = m.ids || {}; m.ids['r' + res.id] = 1; }
-  return { gold: gold + conv * MAXED_GOLD, frags, keys, dia, first, stones, newCodex, stage: st, boss, mult: X }; }
+  return { gold: gold + conv * MAXED_GOLD, frags, keys, dia, first, stones, newCodex, stage: st, boss, mult: X, ivt, chest }; }
 function unlocked(m, st) { return st >= 1 && st <= Math.min(FG.MAX_STAGE, m.maxClear + 1); }
-function battleMeta(m) { return { lv: Object.assign({}, m.lv), rel: Object.assign({}, m.rel), stage: unlocked(m, m.stage) ? m.stage : 1 }; }
+function battleMeta(m) { return { lv: Object.assign({}, m.lv), rel: Object.assign({}, m.rel), stage: unlocked(m, m.stage) ? m.stage : 1, mythU: Object.assign({}, m.mythU || {}) }; }
 // idle patrol: per hour ≈ 1/48 of a 5-run day (25% of daily run gold/frags over 12h), scaled by best cleared stage; no keys/dia/stones
 const IDLE_GOLD_H = 6, IDLE_FRAG_H = 0.47, IDLE_MAX_H = 12; // 2026-11-19 x0.25: with idle 8h x2 + ad x2, unit max ~230 runs (was ~130)
 function idleAmount(m, hours) { const h = Math.max(0, Math.min(IDLE_MAX_H, hours)), sm = FG.stageMul(Math.max(1, m.maxClear | 0)).rew; return { gold: Math.round(IDLE_GOLD_H * h * sm), frags: Math.floor(IDLE_FRAG_H * h * sm) }; }
 function idleGrant(m, amt, mul, rnd) { rnd = rnd || Math.random; mul = mul || 1; const out = { gold: amt.gold * mul, frags: {} }; m.gold += out.gold; let conv = 0; for (let i = 0; i < amt.frags * mul; i++) { const k = pickUnit(rnd, FRAG_UNITS); if (addFrag(m, k, 1) === 'gold') conv++; else out.frags[k] = (out.frags[k] || 0) + 1; } out.gold += conv * MAXED_GOLD; return out; }
-const API = { MIG23_DIA, CODEX_DIA, stonesSpent, REW, IDLE_MAX_H, idleAmount, idleGrant, BOSS_KEY, REL_MAX, keyOdds, keyPool, bossRoll, unlocked, MSC, MYTHS, FRAG_UNITS, canLevel, SAVE_V, UF, UG, RF, KEY_MS, FREE_CAP, CHEST, SAVE, fresh, fix, load, save, tick, nextKeyIn, claimFree, unitCost, levelUp, relCost, relUp, openKey, chest, reward, battleMeta, addFrag, canAnything, sweepReward };
+const API = { TIER_W, IVT_DIV, IVT_FIRST, CH_MYTH, CH_REW, MYTH_CARD_P, MYTH_DUP_DIA, MYTH_BUY, mythOK, lockedMyths, unlockMyth, buyMyth, recruit, MIG23_DIA, CODEX_DIA, stonesSpent, REW, IDLE_MAX_H, idleAmount, idleGrant, BOSS_KEY, REL_MAX, keyOdds, keyPool, bossRoll, unlocked, MSC, MYTHS, FRAG_UNITS, canLevel, SAVE_V, UF, UG, RF, KEY_MS, FREE_CAP, CHEST, SAVE, fresh, fix, load, save, tick, nextKeyIn, claimFree, unitCost, levelUp, relCost, relUp, openKey, chest, reward, battleMeta, addFrag, canAnything, sweepReward };
 if (typeof module !== 'undefined') module.exports = API; else root.META = API;
 })(typeof window !== 'undefined' ? window : globalThis);
 </script><script>// Forest Guardians — economy layer (hearts, ad slots, ad-removal, 3x mode, 2x speed, hunting pass, attendance, missions, mythic gear gacha & enhancement).
@@ -1079,11 +1094,11 @@ const SHOP = {
 // ---------- hunting pass ----------
 const P_LV = 50, P_XP = 10, XP_WIN = 8, XP_LOSS = 4;
 function passReward(track, L) { const r = L % 5; // L = 1..50
-  if (track === 'f') return r === 0 ? { dia: 30 } : r === 1 ? { hearts: 6 } : r === 2 ? { gold: 300 } : { gold: 300 };
+  if (track === 'f') return r === 0 ? { dia: 30 } : r === 1 ? { hearts: 6 } : r === 2 ? { ivt: 2 } : { gold: 300 };
   return r === 0 ? { keys: 1 } : r === 1 ? { berry: 2 } : r === 2 ? { dia: 100 } : { dia: 50 }; }
 // ---------- attendance (7-day loop) & missions ----------
-const ATT = [{ hearts: 10 }, { gold: 500 }, { dia: 30 }, { dia: 30 }, { hearts: 15 }, { gold: 1000 }, { dia: 80, keys: 1 }];
-const DAILY = [{ id: 'run3', need: 3, r: { dia: 20 } }, { id: 'win1', need: 1, r: { gold: 300 } }, { id: 'boss2', need: 2, r: { gold: 300 } }, { id: 'lvup1', need: 1, r: { hearts: 5 } }];
+const ATT = [{ hearts: 10 }, { gold: 500, ivt: 2 }, { dia: 30 }, { dia: 30 }, { hearts: 15 }, { gold: 1000 }, { dia: 80, keys: 1 }];
+const DAILY = [{ id: 'run3', need: 3, r: { dia: 20 } }, { id: 'win1', need: 1, r: { gold: 300, ivt: 1 } }, { id: 'boss2', need: 2, r: { gold: 300 } }, { id: 'lvup1', need: 1, r: { hearts: 5 } }];
 const BEGIN = [{ id: 'c1', st: 1, r: { hearts: 15 } }, { id: 'c5', st: 5, r: { hearts: 15, dia: 30 } }, { id: 'c10', st: 10, r: { hearts: 20, dia: 100 } }, { id: 'c15', st: 15, r: { hearts: 20 } }, { id: 'c20', st: 20, r: { hearts: 25, dia: 100 } }, { id: 'c25', st: 25, r: { hearts: 25 } }, { id: 'c30', st: 30, r: { hearts: 30, dia: 150 } }];
 // ---------- mythic gear ----------
 const MYTHS = Object.keys(FG.UNITS).filter(k => FG.UNITS[k].tier === 4);
@@ -1102,7 +1117,7 @@ function fresh(now) { now = now != null ? now : Date.now();
   return { v: V, lastT: now, day: dayKey(now), hearts: H_MAX, heartT: now, heartBuys: 0, tut: 0, ads: {}, adfree: 0, triplePaid: 0, tripleOn: 0, tripleAd: 0, speedUntil: 0, speedOn: 1,
     berry: 0, dust: 0, gacha: 0, inv: {}, eq: {}, perm: {}, idleT: now, idleDay: dayKey(now), idleN: 0, inf: { d: dayKey(now), n: 0 }, infBest: 0, infWk: { wk: 0, best: 0 },
     pass: { fm: monthKey(now), fxp: 0, fc: 0, pOwned: 0, pxp: 0, pc: 0, cyc: 0 },
-    att: { last: 0, idx: 0, got: 0 }, sw: { d: dayKey(now), used: 0, ad: 0, ids: [] }, daily: { d: dayKey(now), p: {}, got: {} }, begin: {}, gid: [], stats: { runs: 0, buys: 0 } }; }
+    att: { last: 0, idx: 0, got: 0 }, sw: { d: dayKey(now), used: 0, ad: 0, ids: [] }, daily: { d: dayKey(now), p: {}, got: {} }, begin: {}, ivtF: 0, ivtB: { d: 0, n: 0 }, gid: [], stats: { runs: 0, buys: 0 } }; }
 function fix(e, now) { const f = fresh(now); if (!e || typeof e !== 'object' || e.v !== V) return f;
   for (const k in f) if (e[k] !== undefined && typeof e[k] === typeof f[k]) f[k] = e[k];
   for (const k of ['hearts', 'berry', 'dust', 'gacha', 'heartBuys']) f[k] = Math.max(0, f[k] | 0);
@@ -1153,6 +1168,12 @@ function canTriple(e) { return !!e.triplePaid || ((e.tripleAd | 0) < 1 && adLeft
 function startRun(e, triple) { const c = runCost(e, triple); if (e.hearts < c) return null; if (triple && !e.triplePaid) { if (!canTriple(e)) return null; useAd(e, 'triple'); e.tripleAd = 1; }
   e.hearts -= c; if (e.hearts < H_MAX && e.heartT > e.lastT) e.heartT = e.lastT; return { mult: triple ? 3 : 1, cost: c }; }
 function buyHearts(e) { const p = heartPrice(e.heartBuys); return p; }
+// v0.25 recruit invitations 🎟: 2 free per day, up to 5 bought per day with diamonds
+const IVT_FREE = 2, IVT_DIA = 100, IVT_BUY_MAX = 5;
+function ivtFreeLeft(e) { return e.ivtF === e.day ? 0 : IVT_FREE; }
+function ivtFree(e, m) { if (e.ivtF === e.day) return null; e.ivtF = e.day; m.ivt = (m.ivt | 0) + IVT_FREE; return { ivt: IVT_FREE }; }
+function ivtBuyLeft(e) { return Math.max(0, IVT_BUY_MAX - (e.ivtB && e.ivtB.d === e.day ? e.ivtB.n : 0)); }
+function buyIvt(e, m) { if (ivtBuyLeft(e) <= 0 || !(m.dia >= IVT_DIA)) return null; if (!e.ivtB || e.ivtB.d !== e.day) e.ivtB = { d: e.day, n: 0 }; e.ivtB.n++; m.dia -= IVT_DIA; m.ivt = (m.ivt | 0) + 1; e.stats.buys = (e.stats.buys | 0) + 1; return { ivt: 1, cost: IVT_DIA }; }
 function buyStones(e, m, pid) { const pk = SHOP.stones.find(x => x.id === pid); if (!pk || !(m.dia >= pk.dia)) return null; m.dia -= pk.dia; m.stones = (m.stones || 0) + pk.n; e.stats.buys = (e.stats.buys | 0) + 1; return { cost: pk.dia, stones: pk.n }; }
 function doBuyHearts(e, m) { const p = heartPrice(e.heartBuys); if (m.dia < p) return null; m.dia -= p; e.heartBuys++; grant(e, m, { hearts: H_BUY }); return { cost: p }; }
 function tutorialHearts(e, m) { if (e.tut) return null; e.tut = 1; return grant(e, m, { hearts: H_TUT }, 'tut'); }
@@ -1226,7 +1247,7 @@ function infEnd(e, m, run, wave, bossKills, rnd, now) { now = clock(e, now); wav
   if (run && run.rewarded && run.id && !seen(e, run.id)) { const g = grant(e, m, { dia: Math.min(INF_DIA_MAX, Math.floor(wave / INF_DIA_W)) }, run.id); if (g) { out.gold = g.gold | 0; out.dia = g.dia | 0; } }
   if (wave >= INF_WK_KEY_W && wk === e.infWk.wk) { const g = grant(e, m, { keys: 1 }, 'infwk:' + wk); if (g) out.keys = 1; } // permanent id: once per week
   return out; }
-const API = { buyStones, SW_FREE, SW_AD, SW_ADFREE, sweepInfo, sweepAd, sweepUse, INF_UNLOCK, INF_RUNS, INF_GOLD_W, INF_GOLD_MAX, INF_DIA_W, INF_DIA_MAX, INF_WK_KEY_W, weekKey, infUnlocked, infLeft, infStart, infEnd, IDLE_CLAIMS, idleHours, idleClaimable, idleClaim, idleShift, TEST, buyEnt, buyKeys, seen, SAVE, H_RUN, H_MAX, H_CAP, H_MS, H_AD, H_BUY, H_TUT, ADS, AD_DIA, AD_GOLD, AD_STONES, SPEED_MS, SHOP, P_LV, P_XP, XP_WIN, XP_LOSS, ATT, DAILY, BEGIN, MYTHS, COMMON, EXCL, EN_P, EN_C, EN_MAX, EN_K, DUST_C, DUST_X, DUST_PICK, GEAR_SLOT_LV,
+const API = { IVT_FREE, IVT_DIA, IVT_BUY_MAX, ivtFreeLeft, ivtFree, ivtBuyLeft, buyIvt, buyStones, SW_FREE, SW_AD, SW_ADFREE, sweepInfo, sweepAd, sweepUse, INF_UNLOCK, INF_RUNS, INF_GOLD_W, INF_GOLD_MAX, INF_DIA_W, INF_DIA_MAX, INF_WK_KEY_W, weekKey, infUnlocked, infLeft, infStart, infEnd, IDLE_CLAIMS, idleHours, idleClaimable, idleClaim, idleShift, TEST, buyEnt, buyKeys, seen, SAVE, H_RUN, H_MAX, H_CAP, H_MS, H_AD, H_BUY, H_TUT, ADS, AD_DIA, AD_GOLD, AD_STONES, SPEED_MS, SHOP, P_LV, P_XP, XP_WIN, XP_LOSS, ATT, DAILY, BEGIN, MYTHS, COMMON, EXCL, EN_P, EN_C, EN_MAX, EN_K, DUST_C, DUST_X, DUST_PICK, GEAR_SLOT_LV,
   heartPrice, passReward, exclChance, exclId, itemStat, enhP, dayKey, monthKey, fresh, fix, load, save, tick, nextHeartIn, grant, adLeft, adSimple, adReq, useAd, speedOk, runCost, canTriple, startRun, doBuyHearts, tutorialHearts, afterRun, doubleRun, rerollBoss,
   pLv, passXpUsable, addPassXp, claim, finishPaid, buyPass, attendInfo, attend, dailyState, claimDaily, beginState, claimBegin, pull, pickDust, enhance, canEquip, equip, gearOf, gearMeta };
 if (typeof module !== 'undefined') module.exports = API; else root.ECON = API;
@@ -1357,7 +1378,7 @@ let perfF = [], perfT = 0, perfBad = 0, bossIntro = null, bossIntroN = 0, fdt = 
 const FONT = '"Baloo 2","Jua","SoopEmoji",system-ui,-apple-system,"Segoe UI",sans-serif';
 try { document.fonts && document.fonts.load('16px SoopEmoji', '\u{1F48E}\u{1FAD0}\u{1FA99}'); } catch (e) {}
 // v0.23: hand-drawn cartoon currency icons replace emoji inside any txt() string (🪙💎🔷🗝❤🧩🫐✨🌰)
-const ICO = {}, ICO_RE = /(🪙|💎|🔷|🗝️?|❤️?|🧩|🫐|✨|🌰)/u, ICO_SPLIT = /(🪙|💎|🔷|🗝️?|❤️?|🧩|🫐|✨|🌰)/gu;
+const ICO = {}, ICO_RE = /(🪙|💎|🔷|🗝️?|❤️?|🧩|🫐|✨|🌰|🎟️?)/u, ICO_SPLIT = /(🪙|💎|🔷|🗝️?|❤️?|🧩|🫐|✨|🌰|🎟️?)/gu;
 function icoCanvas(ch) { ch = ch.replace('️', ''); if (ICO[ch]) return ICO[ch]; const c = ICO[ch] = document.createElement('canvas'); c.width = c.height = 96; const q = c.getContext('2d'); q.scale(1.5, 1.5); q.lineJoin = q.lineCap = 'round';
   const OL = '#3b2412', ol = (w) => { q.lineWidth = (w || 3.5) * 1.45; q.strokeStyle = OL; q.stroke(); }, lg = (y0, y1, a, b) => { const g = q.createLinearGradient(0, y0, 0, y1); g.addColorStop(0, a); g.addColorStop(1, b); return g; }, shine = (x, y, rx, ry, rot) => { q.beginPath(); q.ellipse(x, y, rx, ry, rot || -.6, 0, 7); q.fillStyle = 'rgba(255,255,255,.75)'; q.fill(); };
   const shadow = () => { q.beginPath(); q.ellipse(32, 58, 20, 4, 0, 0, 7); q.fillStyle = 'rgba(0,0,0,.18)'; q.fill(); };
@@ -1378,6 +1399,9 @@ function icoCanvas(ch) { ch = ch.replace('️', ''); if (ICO[ch]) return ICO[ch]
   else if (ch === '🫐') { shadow(); [[22, 38], [42, 38], [32, 24]].forEach(([x, y]) => { q.beginPath(); q.arc(x, y, 13, 0, 7); q.fillStyle = lg(y - 13, y + 13, '#7f8cff', '#2c2f9e'); q.fill(); ol(3); q.beginPath(); for (let i = 0; i < 5; i++) { const a = i * Math.PI * 2 / 5; q.lineTo(x + Math.cos(a) * 3.5, y - 6 + Math.sin(a) * 3.5); } q.closePath(); q.fillStyle = '#1b1d6b'; q.fill(); shine(x - 5, y - 2, 3, 1.8); });
     q.beginPath(); q.ellipse(38, 10, 8, 4, -.4, 0, 7); q.fillStyle = '#5cbf3a'; q.fill(); ol(2.5); }
   else if (ch === '✨') { const st = (x, y, r, c) => { q.beginPath(); for (let i = 0; i < 8; i++) { const a = -Math.PI / 2 + i * Math.PI / 4, rr2 = i % 2 ? r * .3 : r; q.lineTo(x + Math.cos(a) * rr2, y + Math.sin(a) * rr2); } q.closePath(); q.fillStyle = c; q.fill(); ol(2.5); }; st(28, 34, 22, '#ffe25a'); st(50, 14, 10, '#fff6c0'); st(50, 50, 7, '#fff6c0'); }
+  else if (ch === '🎟') { shadow(); q.save(); q.translate(32, 32); q.rotate(-0.25); const tk = () => { q.beginPath(); q.moveTo(-24, -14); q.lineTo(24, -14); q.arc(24, -6, 0.01, 0, 0); q.lineTo(24, -5); q.arc(24, 0, 5, -Math.PI / 2, Math.PI / 2, true); q.lineTo(24, 14); q.lineTo(-24, 14); q.lineTo(-24, 5); q.arc(-24, 0, 5, Math.PI / 2, -Math.PI / 2, true); q.closePath(); };
+    tk(); q.fillStyle = lg(-14, 14, '#ffd36b', '#f08a24'); q.fill(); ol(3.5); q.setLineDash([3, 3]); q.beginPath(); q.moveTo(10, -12); q.lineTo(10, 12); q.lineWidth = 2; q.strokeStyle = '#a0521a'; q.stroke(); q.setLineDash([]);
+    q.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? 3 : 7.5; q.lineTo(-6 + Math.cos(a) * r, Math.sin(a) * r); } q.closePath(); q.fillStyle = '#fff4c0'; q.fill(); q.lineWidth = 2; q.strokeStyle = '#a0521a'; q.stroke(); q.restore(); shine(16, 22, 4, 2); }
   else if (ch === '🌰') { shadow(); q.beginPath(); q.ellipse(32, 38, 16, 18, 0, 0, 7); q.fillStyle = lg(22, 56, '#d9894a', '#8a4a1c'); q.fill(); ol(); q.beginPath(); q.moveTo(12, 28); q.quadraticCurveTo(32, 6, 52, 28); q.quadraticCurveTo(32, 34, 12, 28); q.fillStyle = lg(10, 32, '#a5743f', '#6b4220'); q.fill(); ol(); q.beginPath(); q.moveTo(32, 14); q.lineTo(34, 6); ol(4); shine(25, 40, 3, 6, .3); }
   return c; }
 function txt(s, x, y, size, col, align, weight, stroke) { s = String(s); if (ICO_RE.test(s)) return txtIco(s, x, y, size, col, align, weight, stroke); txt0(s, x, y, size, col, align, weight, stroke); }
@@ -1741,6 +1765,8 @@ function drawMyth() {
       let nm = T[L].names[k]; cx.font = '800 10px ' + FONT; while (nm.length > 2 && cx.measureText(nm).width > w - 38) nm = nm.slice(0, -1); if (nm !== T[L].names[k]) nm += '…';
       txt(nm, x + 36, y + 14, 10, done ? '#d8cbb4' : '#4a2e14', null, 800);
       if (!done) { const lab = ingLab22(st); rr(x + 3, y + h - 19, w - 6, 16, 8); cx.fillStyle = c[0]; cx.fill(); txt(lab, x + w / 2, y + h - 11, 9.5, '#fff', 'c', 800, 0); txt('★'.repeat(Math.max(1, Math.min(3, (st.s === 'ok' ? 2 : st.n1 ? 1 : st.s === 'over' ? 3 : 0)))), x + 36, y + 27, 9, st.s === 'none' ? '#b8a88e' : '#e0a800', null, 800); } });
+    if (g.mythAllow && !g.mythAllow[m]) { const ci = META.CH_MYTH.indexOf(m); rr(r.x, r.y, r.w, r.h, 14); cx.fillStyle = 'rgba(30,18,40,.72)'; cx.fill(); txt('🔒 ' + (ko ? '잠긴 신화' : 'Locked mythic'), r.x + r.w / 2, r.y + 30, 16, '#e8dcff', 'c', 900, 3);
+      txt(ci >= 0 ? (ko ? (ci + 1) + '챕터를 깨면 해금' : 'Clear chapter ' + (ci + 1) + ' to unlock') : (ko ? '상점에서 💎' + META.MYTH_BUY.toLocaleString() + '로 해금 · 모집에서 가끔' : 'Unlock in shop 💎' + META.MYTH_BUY.toLocaleString() + ' · rarely from recruit'), r.x + r.w / 2, r.y + 56, 12, '#d9c7ff', 'c', 800, 2); return; }
     const b = MY_BTN(i); if (done) txt(t('made') + ' ✓', b.x + b.w / 2, b.y + b.h / 2, 15, '#ffd84d', 'c', 800, 3);
     else { btn(b, t('combine'), ok, '#c0392b', 15); if (CFG.comboCost) txt('🌰' + CFG.comboCost, b.x + b.w / 2, b.y + b.h + 9, 10, g.gold < CFG.comboCost && nOk === 3 ? '#c0392b' : '#8a6a42', 'c', 800, 0); } });
 }
@@ -1764,7 +1790,7 @@ function drawOffer(dt) {
     const lines = T[L].desc[k].split(' · ');
     txt(atkMode(k), r.x + r.w / 2, r.y + 190, 12, UNITS[k].rng >= 3 ? '#2a6fb0' : '#b0402a', 'c', 800); txt('✦ ' + (SKN[L][k] || ''), r.x + r.w / 2, r.y + 206, 12, '#7a3fb0', 'c', 800);
     { let s2 = lines[1] || lines[0] || '', fs = 11.5; cx.font = '700 ' + fs + 'px ' + FONT; while (cx.measureText(s2).width > r.w - 10 && fs > 8.5) { fs -= .5; cx.font = '700 ' + fs + 'px ' + FONT; } txt(s2, r.x + r.w / 2, r.y + 224, fs, '#6b4424', 'c', 700); } // v0.24: role was shown twice (chip line + desc) -> desc only
-    { const ms = newbie24() ? [] : Object.keys(FG.RECIPES).filter(m => !g.myth[m] && FG.RECIPES[m].includes(k)); if (ms.length) { const lab = '🔮 ' + ms.map(m => T[L].names[m]).join('·') + (L === 'ko' ? ' 재료' : ''); let fs = 10; cx.font = '800 ' + fs + 'px ' + FONT; while (cx.measureText(lab).width > r.w - 14 && fs > 7) { fs -= .5; cx.font = '800 ' + fs + 'px ' + FONT; } rr(r.x + 6, r.y + 6, r.w - 12, 17, 8); cx.fillStyle = 'rgba(122,63,176,.92)'; cx.fill(); txt(lab, r.x + r.w / 2, r.y + 15, fs, '#fff', 'c', 800, 0); } }
+    { const ms = newbie24() ? [] : Object.keys(FG.RECIPES).filter(m => !g.myth[m] && (!g.mythAllow || g.mythAllow[m]) && FG.RECIPES[m].includes(k)); if (ms.length) { const lab = '🔮 ' + ms.map(m => T[L].names[m]).join('·') + (L === 'ko' ? ' 재료' : ''); let fs = 10; cx.font = '800 ' + fs + 'px ' + FONT; while (cx.measureText(lab).width > r.w - 14 && fs > 7) { fs -= .5; cx.font = '800 ' + fs + 'px ' + FONT; } rr(r.x + 6, r.y + 6, r.w - 12, 17, 8); cx.fillStyle = 'rgba(122,63,176,.92)'; cx.fill(); txt(lab, r.x + r.w / 2, r.y + 15, fs, '#fff', 'c', 800, 0); } }
     const owned = [...g.board, ...g.bench].some(u => u && u.k === k && u.star === 1); // new recruits are 1★: only a 1★ copy can merge
     if (owned) { rr(r.x + 16, r.y + 240, r.w - 32, 20, 9); cx.fillStyle = '#ffd84d'; cx.fill(); txt(t('merge') + '!', r.x + r.w / 2, r.y + 250, 12, '#6b3a00', 'c', 800); }
     cx.restore();
@@ -1785,8 +1811,8 @@ function drawEnd(dt) {
   txt(t('wave') + ' ' + r.wave + '/' + CFG.maxWave + ' · ' + t('core') + ' ' + r.core, W / 2, 364, 15, '#ffe2a8', 'c', 700);
   txt((isDaily ? t('daily') + ' ' + seedLabel + ' · ' : '') + t('best') + ' ' + getBest(), W / 2, 392, 13, '#d9c7a6', 'c', 700);
   if (r.win && window.STORY_LINES) { cx.globalAlpha = .9; wrapText((L === 'ko' ? '도적 곰: ' : 'Bandit Bear: ') + STORY_LINES.tease[L], W / 2, 672, W - 70, 13, '#d9c7a6', 19, 700); cx.globalAlpha = 1; }
-  if (g._rew) { const R2 = g._rew, fr = Object.values(R2.frags).reduce((a, b) => a + b, 0); rr(40, 408, W - 80, R2.first || (R2.newCodex && R2.newCodex.length) ? 60 : 40, 14); cx.fillStyle = 'rgba(255,246,220,.14)'; cx.fill();
-    txt(lt('rewards') + ':  🪙 +' + R2.gold + '   🗝 +' + R2.keys + '   🧩 +' + fr + (R2.stones ? '   🔷 +' + R2.stones : '') + (R2.dia ? '   💎 +' + R2.dia : ''), W / 2, 428, 15, '#ffe9a8', 'c', 800, 3); const ex = [R2.keyBonus ? lt('keyBonus') : R2.first ? lt('firstClear') : '', R2.newCodex && R2.newCodex.length ? lt('codexNew') + ' ' + R2.newCodex.map(k => T[L].names[k]).join(', ') : ''].filter(Boolean).join(' · '); if (ex) txt(ex, W / 2, 452, 12, '#9cff6a', 'c', 800, 3); }
+  if (g._rew) { const R2 = g._rew, fr = Object.values(R2.frags).reduce((a, b) => a + b, 0); rr(40, 408, W - 80, R2.first || R2.chest || (R2.newCodex && R2.newCodex.length) ? 60 : 40, 14); cx.fillStyle = 'rgba(255,246,220,.14)'; cx.fill();
+    txt(lt('rewards') + ':  🪙 +' + R2.gold + '   🗝 +' + R2.keys + (fr ? '   🧩 +' + fr : '') + (R2.stones ? '   🔷 +' + R2.stones : '') + (R2.dia ? '   💎 +' + R2.dia : '') + (R2.ivt ? '   🎟 +' + R2.ivt : ''), W / 2, 428, 15, '#ffe9a8', 'c', 800, 3); const ex = [R2.chest ? (L === 'ko' ? '🎁 챕터 보상 🎟' : '🎁 Chapter chest 🎟') + R2.chest.ivt + ' 💎' + R2.chest.dia + (R2.chest.myth ? (L === 'ko' ? ' · 🔓 신화 해금: ' : ' · 🔓 Mythic: ') + T[L].names[R2.chest.myth] : '') : '', R2.keyBonus ? lt('keyBonus') : R2.first ? lt('firstClear') : '', R2.newCodex && R2.newCodex.length ? lt('codexNew') + ' ' + R2.newCodex.map(k => T[L].names[k]).join(', ') : ''].filter(Boolean).join(' · '); if (ex) txt(ex, W / 2, 452, 12, '#9cff6a', 'c', 800, 3); }
   const nx = endNext(); btn(END_AGAIN, nx ? lt('nextStage') + ' ' + FG.stageName(nx) + ' ▶' : t('again'), true, '#3fae4a'); { const lu = lvupHint24(); btn(END_HOME, lu ? (L === 'ko' ? '⬆ 동료 레벨업 하러 가기 (' + lu.n + '명)' : '⬆ Level up friends (' + lu.n + ')') : lt('lobby'), true, lu ? '#e08a1e' : '#7a8f4a'); }
   if (!isDaily) txt(lt('stage') + ' ' + FG.stageName(g.meta.stage), W / 2, 306, 13, '#d9c7a6', 'c', 700, 2);
   drawEndExtras();
@@ -1908,7 +1934,7 @@ function drawSquad() {
   ks.forEach((k, i) => { const r = UCARD(i), d = UNITS[k], l = MS.lv[k], c = META.unitCost(MS, k);
     rr(r.x, r.y, r.w, r.h, 14); cx.fillStyle = selU === k ? 'rgba(255,240,200,.95)' : 'rgba(246,231,200,.85)'; cx.fill(); cx.strokeStyle = TIER_COL[d.tier]; cx.lineWidth = selU === k ? 4 : 2.5; cx.stroke();
     if (rigOk(k)) rigAt('o' + k, k, r.x + r.w / 2, r.y + 100, RCLS(k) === 'quad' ? 56 : 74, 1); else if (pxOk(k)) pxDraw(k, 0, r.x + r.w / 2, r.y + 96, 1.5, { face: 1 }); else sprite(k, r.x + r.w / 2, r.y + 62, 64);
-    const und = d.tier === 4 && !MS.codex[k]; if (und) { rr(r.x + 3, r.y + 3, r.w - 6, r.h - 6, 12); cx.fillStyle = 'rgba(30,18,40,.82)'; cx.fill(); txt('?', r.x + r.w / 2, r.y + 76, 44, '#cdb6ff', 'c', 900, 4); }
+    const und = d.tier === 4 && !META.mythOK(MS, k); if (und) { rr(r.x + 3, r.y + 3, r.w - 6, r.h - 6, 12); cx.fillStyle = 'rgba(30,18,40,.82)'; cx.fill(); txt('?', r.x + r.w / 2, r.y + 76, 44, '#cdb6ff', 'c', 900, 4); }
     txt(und ? '🔒' : lt('lv') + ' ' + l, r.x + 8, r.y + 12, 12, und ? '#e8dcff' : '#5a3a1e', null, 800); txt(d.dt === 'm' ? '✦' : '⚔', r.x + r.w - 10, r.y + 13, 13, d.dt === 'm' ? '#7a4cff' : '#b0562a', 'r', 800);
     if (d.tier === 4 && c) { bar(r.x + 8, r.y + r.h - 16, r.w - 16, 9, (MS.stones || 0) / c.s, MS.stones >= c.s ? '#7be04f' : '#b47cff'); txt('🔷 ' + (MS.stones || 0) + '/' + c.s, r.x + r.w / 2, r.y + r.h - 12, 9, '#fff', 'c', 800, 2); if (und) { rr(r.x + 6, r.y + r.h - 22, r.w - 12, 18, 8); cx.fillStyle = 'rgba(30,18,40,.95)'; cx.fill(); txt(lt('undiscovered'), r.x + r.w / 2, r.y + r.h - 13, 10, '#e8dcff', 'c', 800, 0); } }
     else if (c) { bar(r.x + 8, r.y + r.h - 16, r.w - 16, 9, MS.fr[k] / c.f, MS.fr[k] >= c.f ? '#7be04f' : '#4fb4ff'); txt(MS.fr[k] + '/' + c.f, r.x + r.w / 2, r.y + r.h - 12, 9, '#fff', 'c', 800, 2); } else txt(lt('maxed'), r.x + r.w / 2, r.y + r.h - 12, 12, '#e8912c', 'c', 800, 2);
@@ -1921,7 +1947,7 @@ function drawSquad() {
   txt(t('hp') + ' ' + st.hp + '   ' + t('atk') + ' ' + st.atk + '   ' + t('rng') + ' ' + d.rng, 28, y + 70, 13, '#ffe2a8', null, 700);
   const UQ = UNIQ[L][k] || [], MSL = [[3, lt('ms')[3]], [6, UQ[0]], [9, lt('ms')[9]], [12, UQ[1]], [15, lt('ms')[15]]].filter(m => m[1]);
   MSL.forEach(([n, s2], i) => { const ok = l >= n, yy = y + 96 + i * 21; txt((ok ? '✔ ' : '· ') + lt('lv') + n + '  ' + s2, 28, yy, 13, ok ? '#9cff6a' : 'rgba(255,246,220,.6)', null, 700); });
-  if (ES && d.tier === 4) btn(L_CHEST, '⚔ ' + et('gear') + (ES.eq[k] ? ' ✔' : MS.lv[k] < ECON.GEAR_SLOT_LV ? ' 🔒' : ''), true, '#8e44ad', 15); else btn(L_CHEST, '🎁 ' + lt('chest') + ' 🪙' + META.CHEST, MS.gold >= META.CHEST, '#8a5a32', 15);
+  if (ES && d.tier === 4) btn(L_CHEST, '⚔ ' + et('gear') + (ES.eq[k] ? ' ✔' : MS.lv[k] < ECON.GEAR_SLOT_LV ? ' 🔒' : ''), true, '#8e44ad', 15); else btn(L_CHEST, (L === 'ko' ? '🎟 영웅 모집 (' : '🎟 Recruit (') + (MS.ivt | 0) + ')', true, '#8a5a32', 15);
   if (d.tier === 4 && c) btn(L_UP, '⬆ ' + lt('lvup') + ' 🔷' + c.s, MS.stones >= c.s, '#8e44ad', 16); else if (c) btn(L_UP, '⬆ ' + lt('lvup') + ' 🪙' + c.g, MS.fr[k] >= c.f && MS.gold >= c.g, '#3fae4a', 16); else btn(L_UP, lt('maxed'), false, '#3fae4a', 16);
 }
 function g0Stat(k, l) { const d = UNITS[k], lm = 1 + CFG.lvStep * (Math.min(l, 8) - 1) + CFG.lvStep2 * Math.max(0, l - 8), am = (l >= 3 ? CFG.m3 : 1) * (l >= 15 ? CFG.m15 : 1); return { hp: Math.round(d.hp * lm), atk: Math.round(d.atk * lm * am) }; }
@@ -1960,8 +1986,9 @@ function lobbyTap(p) {
   } else if (tab === 0) {
     for (let i = 0; i < 5; i++) if (inR(SQT(i), p.x, p.y)) { sqT = i; selU = sqUnits()[0]; sfx('tap'); }
     sqUnits().forEach((k, i) => { if (inR(UCARD(i), p.x, p.y)) { selU = k; sfx('tap'); } });
-    if (inR(L_UP, p.x, p.y)) { if (META.levelUp(MS, selU)) { SAVEM(); if (ES) { ES.daily.p.lvup1 = (ES.daily.p.lvup1 | 0) + 1; SAVEE(); } sfx('merge'); pops.push({ x: L_UP.x + L_UP.w / 2, y: 520, life: .7, max: .7, col: '#9cff6a', label: lt('lv') + ' ' + MS.lv[selU] }); } else if (FG.UNITS[selU].tier === 4 && !MS.codex[selU]) { lobbyMsg = { icon: '🔮', msg: L === 'ko' ? '먼저 전투에서 재료 3명을 조합해 이 신화를 발견하세요' : 'Discover this mythic first: combine its 3 ingredients in a battle', life: 2 }; sfx('tap'); } else if (FG.UNITS[selU].tier === 4 && META.unitCost(MS, selU) && ES) { pnl = 'shop'; shopScroll = 0; lobbyMsg = { icon: '🔷', msg: L === 'ko' ? '신화석은 상점에서 💎로 구매해요' : 'Buy Mythic Stones with 💎 in the shop', life: 1.6 }; sfx('tap'); } else lobbyMsg = { msg: lt('notEnough'), life: 1.2 }; }
+    if (inR(L_UP, p.x, p.y)) { if (META.levelUp(MS, selU)) { SAVEM(); if (ES) { ES.daily.p.lvup1 = (ES.daily.p.lvup1 | 0) + 1; SAVEE(); } sfx('merge'); pops.push({ x: L_UP.x + L_UP.w / 2, y: 520, life: .7, max: .7, col: '#9cff6a', label: lt('lv') + ' ' + MS.lv[selU] }); } else if (FG.UNITS[selU].tier === 4 && !META.mythOK(MS, selU)) { const ci = META.CH_MYTH.indexOf(selU); lobbyMsg = { icon: '🔒', msg: ci >= 0 ? (L === 'ko' ? (ci + 1) + '챕터를 깨면 해금돼요' : 'Unlocks when you clear chapter ' + (ci + 1)) : (L === 'ko' ? '상점에서 💎' + META.MYTH_BUY.toLocaleString() + '로 해금 (모집에서도 가끔 나와요)' : 'Unlock in the shop for 💎' + META.MYTH_BUY.toLocaleString() + ' (rarely from recruit)'), life: 2.2 }; sfx('tap'); } else if (FG.UNITS[selU].tier === 4 && META.unitCost(MS, selU) && ES) { pnl = 'shop'; shopScroll = 0; lobbyMsg = { icon: '🔷', msg: L === 'ko' ? '신화석은 상점에서 💎로 구매해요' : 'Buy Mythic Stones with 💎 in the shop', life: 1.6 }; sfx('tap'); } else lobbyMsg = { msg: lt('notEnough'), life: 1.2 }; }
     if (inR(L_CHEST, p.x, p.y) && ES && UNITS[selU].tier === 4) { pnl = 'gear'; gearU = selU; gearSel = ES.eq[selU] || null; lastGacha = lastEnh = null; sfx('tap'); return; }
+    if (inR(L_CHEST, p.x, p.y) && ES) { pnl = 'recruit'; lastRec = null; sfx('tap'); return; }
     if (inR(L_CHEST, p.x, p.y)) { const got = META.chest(MS); if (got) { SAVEM(); sfx('pouch'); lobbyMsg = { icon: '🎁', msg: Object.entries(got).map(([k, n]) => T[L].names[k] + ' ×' + n).slice(0, 3).join(', ') + (Object.keys(got).length > 3 ? '…' : ''), life: 2.2 }; } else lobbyMsg = { msg: lt('notEnough'), life: 1.2 }; }
   } else {
     FG.RELICS.forEach((q, i) => { if (inR(RCARD(i), p.x, p.y)) { selR = q; sfx('tap'); } });
@@ -2153,6 +2180,7 @@ function pauseTap(p) { if (inR(PM_RES, p.x, p.y)) { pauseMenu = false; sfx('tap'
   if (inR(PM_QUIT, p.x, p.y)) { pauseMenu = false; if (tut) tutFinish(); g._gaveUp = 1; g.end(false); endShown = 0; sfx('leak'); } }
 // ---------- economy UI (inserted inside ui.js closure by build.py) ----------
 let ES = window.ECON ? ECON.load() : null; const SAVEE = () => saveAll();
+const RC1 = { x: 30, y: 466, w: 190, h: 54 }, RC10 = { x: 230, y: 466, w: 190, h: 54 }, RCF = { x: 30, y: 530, w: 190, h: 46 }, RCB = { x: 230, y: 530, w: 190, h: 46 }; let lastRec = null, lastRecT = 0;
 let oddsBack = null, pnl = null, pnlT = 'shop', gearU = null, gearSel = null, tripleOn = false, lastGacha = null, lastEnh = null;
 const ET = {
   en: { hearts: 'Hearts', shop: 'Shop', pass: 'Pass', missions: 'Missions', attend: 'Check-in', close: 'Close', test: 'TEST', watch: 'Watch ad', instant: 'Get now', left: 'left today', noHeart: 'Not enough hearts',
@@ -2189,7 +2217,7 @@ function gIcon(id, x, y, sz) { const i = GEAR_IDS().indexOf(id); if (i >= 0 && P
 const statStr = s => Object.entries(s).map(([k, v]) => ({ dmg: L === 'ko' ? '피해' : 'DMG', hp: L === 'ko' ? '체력' : 'HP', aspd: L === 'ko' ? '공속' : 'ASPD', crit: L === 'ko' ? '치확' : 'Crit', critd: L === 'ko' ? '치피' : 'CritDMG', boss: L === 'ko' ? '보스' : 'Boss' }[k] + ' +' + Math.round(v * 1000) / 10 + (k === 'crit' || k === 'critd' ? '%p' : '%'))).join(' · ');
 function wrapL(str, x, y, maxW, size, col, lh, weight) { cx.font = (weight || 700) + ' ' + size + 'px ' + FONT; let line = ''; for (const w of str.split(/(\s+)/)) { const tl = line + w; if (cx.measureText(tl).width > maxW && line.trim()) { txt(line.trim(), x, y, size, col, null, weight || 700); y += lh; line = w.trimStart(); } else line = tl; } if (line.trim()) { txt(line.trim(), x, y, size, col, null, weight || 700); y += lh; } return y; }
 const fmtMs = ms => { const s = Math.ceil(ms / 1000), m = Math.floor(s / 60); return m + ':' + String(s % 60).padStart(2, '0'); };
-const rwStr = r => Object.entries(r || {}).filter(([, v]) => v).map(([k, v]) => ({ gold: '🪙', dia: '💎', keys: '🗝', stones: '🔷', hearts: '❤', berry: '🫐', dust: '✨', xp: 'XP ', speed: '⏩', frag: '🧩' }[k] || k) + v).join(' ');
+const rwStr = r => Object.entries(r || {}).filter(([, v]) => v).map(([k, v]) => ({ gold: '🪙', dia: '💎', keys: '🗝', stones: '🔷', hearts: '❤', berry: '🫐', dust: '✨', xp: 'XP ', speed: '⏩', frag: '🧩', ivt: '🎟' }[k] || k) + v).join(' ');
 const adLbl = slot => (ES.adfree ? '⚡ ' + et('instant') : (PLAY ? '🎁 ' : '📺 ') + et('watch')) + ' (' + ECON.adLeft(ES, slot) + ')';
 function gotMsg(icon, r) { lobbyMsg = { icon, msg: typeof r === 'string' ? r : rwStr(r), life: 1.8 }; sfx('pouch'); SAVEM(); SAVEE(); }
 // stub ad provider: in RC-Internal every ad completes instantly
@@ -2226,6 +2254,8 @@ function drawPanel(now) { if (!pnl || !ES) return; ECON.tick(ES, MS, now);
       ['⚡ ' + et('adfree') + ' ₩' + S.adfree.krw.toLocaleString(), et('adfreeInfo'), ES.adfree ? et('owned') : '₩' + S.adfree.krw.toLocaleString(), !ES.adfree, '#c0392b'],
       ['3× ' + et('triplePaid') + ' ₩' + S.triple.krw.toLocaleString(), et('tripleInfo'), ES.triplePaid ? et('owned') : '₩' + S.triple.krw.toLocaleString(), !ES.triplePaid, '#c0392b'],
       ...S.stones.map(k => ['🔷 ' + (L === 'ko' ? '신화석 ×' : 'Mythic Stones ×') + k.n, (L === 'ko' ? '신화 레벨업 재료 · 다이아로만 구매' : 'Mythic level-ups · diamonds only') + (k.n >= 50 ? (L === 'ko' ? ' · 10% 할인' : ' · 10% off') : ''), '💎 ' + k.dia.toLocaleString(), MS.dia >= k.dia, '#8e44ad', { st: k.id }]),
+      ['🎟 ' + (L === 'ko' ? '초대장 ×1' : 'Invitation ×1'), (L === 'ko' ? '영웅 모집 1회 · 오늘 ' : 'Recruit once · today ') + ECON.ivtBuyLeft(ES) + '/' + ECON.IVT_BUY_MAX, '💎 ' + ECON.IVT_DIA, ECON.ivtBuyLeft(ES) > 0 && MS.dia >= ECON.IVT_DIA, '#8e44ad', { ivt: 1 }],
+      ...META.lockedMyths(MS).filter(k => !META.CH_MYTH.includes(k)).map(k => ['🔓 ' + T[L].names[k], L === 'ko' ? '신화 해금 · 판에서 조합 가능해져요' : 'Unlock mythic · craftable in battles', '💎 ' + META.MYTH_BUY.toLocaleString(), MS.dia >= META.MYTH_BUY, '#7a3fb0', { myth: k }]),
       [et('freeDia'), ECON.adLeft(ES, 'dia') + ' ' + et('left'), adLbl('dia'), ECON.adLeft(ES, 'dia') > 0, '#3f8fd0', { ad: 'dia' }], [et('freeGold'), ECON.adLeft(ES, 'gold') + ' ' + et('left'), adLbl('gold'), ECON.adLeft(ES, 'gold') > 0, '#3f8fd0', { ad: 'gold' }],
       ...S.keys.map(k => ['🗝 ' + et('keys') + ' ×' + k.n, et('oddsKey'), '₩' + k.krw.toLocaleString(), true, '#8e44ad', { key: k.id }]),
       ['🫐 ' + et('berries') + ' ×1', et('gacha') + ' · ' + et('enhance'), '💎 ' + S.berry1.dia, MS.dia >= S.berry1.dia, undefined, { berry: S.berry1 }], ['🫐 ' + et('berries') + ' ×10', et('gacha') + ' · ' + et('enhance'), '💎 ' + S.berry10.dia, MS.dia >= S.berry10.dia, undefined, { berry: S.berry10 }]];
@@ -2263,6 +2293,21 @@ function drawPanel(now) { if (!pnl || !ES) return; ECON.tick(ES, MS, now);
     let y = wrapL(PLAY ? (L === 'ko' ? '비공개 테스트 빌드: 실제 결제와 광고가 없어요. 광고 자리는 무료 보상으로 바로 지급돼요. 저장은 이 기기에만 돼요.' : 'Closed test build: no real payments or ads. Ad slots give free rewards instantly. Progress is saved on this device only.')
       : (L === 'ko' ? '이용약관 · 개인정보 처리방침: 스토어 출시 전에 링크가 추가됩니다. 이 빌드는 내부 테스트용(RC-Internal)으로 결제·광고가 실제로 일어나지 않습니다.' : 'Terms of Service · Privacy Policy: links will be added before store release. This is an internal test build (RC-Internal); no real payments or ads.'), 28, PLAY ? 574 : 514, W - 70, 12, '#d9c7a6', 18, 700);
     txt('SoopSoop Defense v' + VERSION + (PLAY ? ' · Closed Test' : ' · RC-Internal'), 28, y + 16, 12, '#8d8270', null, 700); return; }
+  if (pnl === 'recruit') { const ko = L === 'ko'; pFrame('🎟 ' + (ko ? '영웅 모집' : 'Recruit') + '  ·  🎟 ' + (MS.ivt | 0) + '  ·  💎 ' + MS.dia);
+    txt(ko ? '🎟 1장 = 동료 카드 10장 (조각 +1씩) · 신화 카드 ' + (META.MYTH_CARD_P * 100) + '%/장' : '🎟 1 = 10 friend cards (+1 fragment each) · Mythic card ' + (META.MYTH_CARD_P * 100) + '%/card', W / 2, 108, 11, '#d9c7a6', 'c', 700);
+    const R = lastRec; if (!R) { txt(ko ? '초대장으로 동료를 모집해 조각을 모아요' : 'Use invitations to recruit friends and collect fragments', W / 2, 260, 14, '#fff6dc', 'c', 800, 2); txt(ko ? '판 보상 · 첫 클리어 · 챕터 보상 · 매일 무료 2장' : 'From runs · first clears · chapter chests · 2 free daily', W / 2, 286, 12, '#d9c7a6', 'c', 700); }
+    else { const list = R.cards.length <= 10 ? R.cards.map(c => Object.assign({ n: 1 }, c)) : (() => { const agg = {}, out = []; for (const c of R.cards) { if (c.myth || c.dia) { out.push(Object.assign({ n: 1 }, c)); continue; } agg[c.k] = (agg[c.k] || 0) + 1; } Object.keys(agg).sort((a, b) => UNITS[b].tier - UNITS[a].tier || agg[b] - agg[a]).forEach(k => out.push({ k, n: agg[k] })); return out.slice(0, 15); })();
+      const age = clock - lastRecT; list.forEach((c, i) => { const col = i % 5, rw = (i / 5) | 0, x = 26 + col * 80, y = 124 + rw * 104, sh = Math.min(1, Math.max(0, (age - i * 0.06) * 6)); if (sh <= 0) return; cx.save(); cx.globalAlpha = sh;
+        const tier = c.myth ? 4 : c.k ? UNITS[c.k].tier : 4; rr(x, y, 74, 96, 10); cx.fillStyle = c.myth ? 'rgba(122,63,176,.95)' : 'rgba(246,231,200,.95)'; cx.fill(); cx.strokeStyle = TIER_COL[tier]; cx.lineWidth = c.myth ? 4 : 2.5; cx.stroke();
+        if (c.myth) { sprite(c.myth, x + 37, y + 48, 46); txt(ko ? '신화 해금!' : 'MYTHIC!', x + 37, y + 86, 11, '#ffe066', 'c', 900, 2); }
+        else if (c.dia) { txt('💎', x + 37, y + 44, 26, '#fff', 'c', 800); txt('+' + c.dia, x + 37, y + 82, 13, '#2a6fb0', 'c', 900); }
+        else { sprite(c.k, x + 37, y + 46, 44); let nm = T[L].names[c.k]; cx.font = '800 10px ' + FONT; while (nm.length > 2 && cx.measureText(nm).width > 68) nm = nm.slice(0, -1); txt(nm, x + 37, y + 76, 10, '#4a2e14', 'c', 800); txt('🧩 +' + c.n, x + 37, y + 89, 10, '#2f8a3a', 'c', 900); }
+        cx.restore(); });
+      if (R.newMyth && R.newMyth.length) txt((ko ? '🔓 신화 해금: ' : '🔓 Mythic unlocked: ') + R.newMyth.map(k => T[L].names[k]).join(', '), W / 2, 440, 14, '#ffe066', 'c', 900, 3); }
+    const f = ECON.ivtFreeLeft(ES), bl = ECON.ivtBuyLeft(ES);
+    btn(RC1, (ko ? '모집 ×1  ' : 'Recruit ×1  ') + '🎟1', (MS.ivt | 0) >= 1, '#3fae4a', 15); btn(RC10, (ko ? '모집 ×10  ' : 'Recruit ×10  ') + '🎟10', (MS.ivt | 0) >= 10, '#e08a1e', 15);
+    btn(RCF, f ? (ko ? '오늘 무료 🎟' + f + ' 받기' : 'Free 🎟' + f + ' today') : (ko ? '무료: 내일 다시' : 'Free: tomorrow'), f > 0, '#3f8fd0', 13); btn(RCB, (ko ? '🎟 사기 💎' : 'Buy 🎟 💎') + ECON.IVT_DIA + ' (' + bl + '/' + ECON.IVT_BUY_MAX + ')', bl > 0 && MS.dia >= ECON.IVT_DIA, '#8e44ad', 13);
+    { const P = META.TIER_W.map(x => Math.round(x * 100)), nm = T[L].tiers; txt((ko ? '확률(카드별): ' : 'Odds per card: ') + [0, 1, 2, 3].map(i => nm[i] + ' ' + P[i] + '%').join(' · ') + (ko ? ' · 만렙 동료 제외' : ' · maxed excluded'), W / 2, 640, 10, '#d9c7a6', 'c', 700); } return; }
   if (pnl === 'idle') { const now = Date.now(), h = ECON.idleHours(ES, now), amt = META.idleAmount(MS, h); pFrame('🌲 ' + (L === 'ko' ? '숲 순찰대' : 'Forest Patrol'));
     let y = wrapL(L === 'ko' ? '앱을 꺼 둬도 순찰대가 골드와 조각을 모아 와요. 최대 12시간, 하루 2번 받을 수 있어요. 최고 클리어 단계가 높을수록 많이 모아요.' : 'Your patrol gathers gold and fragments while you are away. Up to 12h, claim twice a day. Higher best stage = more loot.', 28, 120, W - 70, 13, '#fff6dc', 20, 700);
     txt((L === 'ko' ? '쌓인 시간 ' : 'Stored ') + Math.floor(h) + 'h ' + Math.floor((h % 1) * 60) + 'm / 12h', 28, y + 20, 15, '#ffd98a', null, 800); bar(28, y + 34, W - 70, 10, h / 12, '#7be04f');
@@ -2280,8 +2325,10 @@ function panelTap(p, now) { if (!pnl) return false; if (inR(PN_X, p.x, p.y) || !
   if (pnl === 'shop') { if (inR(SHOP_ODDS, p.x, p.y)) { oddsBack = 'shop'; pnl = 'odds'; return true; } if (inR(SHOP_UP, p.x, p.y)) { panelScroll(-300); return true; } if (inR(SHOP_DN, p.x, p.y)) { panelScroll(300); return true; }
     shopRows.forEach((f, i) => { const yy = 118 + i * 60 - shopScroll; if (yy < 110 || yy > 610 || !inR(RB(yy), p.x, p.y)) return; const S = ECON.SHOP;
       const a = f[5] || {}; if (PLAY && f[6]) { lobbyMsg = { msg: SOON_MSG(), life: 1.6 }; sfx('tap'); return; }
-      if ((a.st || a.berry) && !f[3]) { lobbyMsg = { msg: et('notEnoughDia'), life: 1.2 }; return; } if (!f[3]) return;
+      if ((a.st || a.berry || a.ivt || a.myth) && !f[3]) { lobbyMsg = { msg: et('notEnoughDia'), life: 1.2 }; return; } if (!f[3]) return;
       if (a.ent) { ECON.buyEnt(ES, a.ent); gotMsg(a.ent === 'adfree' ? '⚡' : '3×', et('bought')); }
+      else if (a.ivt) { const r = ECON.buyIvt(ES, MS); if (r) { SAVEM(); SAVEE(); gotMsg('🎟', { ivt: 1 }); } }
+      else if (a.myth) { if (META.buyMyth(MS, a.myth)) { SAVEM(); sfx('win'); lobbyMsg = { icon: '🔓', msg: (L === 'ko' ? '신화 해금: ' : 'Mythic unlocked: ') + T[L].names[a.myth], life: 2.4 }; } }
       else if (a.st) { const r = ECON.buyStones(ES, MS, a.st); if (r) { SAVEM(); SAVEE(); gotMsg('🔷', { stones: r.stones }); sfx('pouch'); } }
       else if (a.ad) showAd(a.ad, () => { const r = ECON.adSimple(ES, MS, a.ad, now); if (r) gotMsg('🎁', r); });
       else if (a.key) gotMsg('🗝', ECON.buyKeys(ES, MS, a.key));
@@ -2297,6 +2344,11 @@ function panelTap(p, now) { if (!pnl) return false; if (inR(PN_X, p.x, p.y) || !
   if (pnl === 'attend') { if (inR(ATT_1, p.x, p.y)) { const r = ECON.attend(ES, MS, false); if (r) gotMsg('📅', r); } if (inR(ATT_2, p.x, p.y)) { const r = ECON.attend(ES, MS, true); if (r) gotMsg('📅', r); } return true; }
   if (pnl === 'settings') { if (inR(ST_LANG, p.x, p.y)) { L = L === 'en' ? 'ko' : 'en'; try { localStorage.setItem('fg-lang', L); } catch (x) {} } if (inR(ST_SND, p.x, p.y)) { muted = !muted; try { localStorage.setItem('fg-mute', muted ? '1' : '0'); } catch (x) {} } const stepV = v => v >= .95 ? .6 : v >= .55 ? .3 : v > 0 ? 0 : 1; if (inR(ST_MUS, p.x, p.y) && !muted) { VOL.mus = stepV(VOL.mus); saveVol(); } if (inR(ST_SFX, p.x, p.y) && !muted) { VOL.sfx = stepV(VOL.sfx); saveVol(); sfx('tap'); }
     if (inR(ST_ODDS, p.x, p.y)) { oddsBack = 'settings'; pnl = 'odds'; } if (inR(ST_NUM, p.x, p.y)) { numMode = (numMode + 1) % 3; noNums = numMode === 2; try { localStorage.setItem('fg-nummode', String(numMode)); } catch (x) {} } if (inR(ST_AST, p.x, p.y)) { autoStartOn = !autoStartOn; lsSet('fg-autostart', autoStartOn ? '1' : '0'); } if (inR(ST_AUTO, p.x, p.y)) { autoUltOn = !autoUltOn; lsSet('fg-autoult', autoUltOn ? '1' : '0'); if (g) g.autoUlt = autoUltOn; } if (inR(ST_SHK, p.x, p.y)) { noShake = !noShake; try { localStorage.setItem('fg-noshake', noShake ? '1' : '0'); } catch (x) {} } if (inR(ST_STORY, p.x, p.y)) { pnl = null; startStory('title'); } if (PLAY && inR(ST_PRIV, p.x, p.y)) { try { window.open(PRIV_URL, '_blank'); } catch (x) { location.href = PRIV_URL; } } sfx('tap'); return true; }
+  if (pnl === 'recruit') { const go = n => { if ((MS.ivt | 0) < n) { lobbyMsg = { msg: L === 'ko' ? '초대장이 부족해요' : 'Not enough invitations', life: 1.2 }; return; } const r = META.recruit(MS, n); if (r) { lastRec = r; lastRecT = clock; SAVEM(); sfx(r.newMyth.length ? 'win' : 'pouch'); } };
+    if (inR(RC1, p.x, p.y)) go(1); else if (inR(RC10, p.x, p.y)) go(10);
+    else if (inR(RCF, p.x, p.y)) { const r = ECON.ivtFree(ES, MS); if (r) { SAVEM(); SAVEE(); gotMsg('🎟', r); } }
+    else if (inR(RCB, p.x, p.y)) { const r = ECON.buyIvt(ES, MS); if (r) { SAVEM(); SAVEE(); gotMsg('🎟', { ivt: 1 }); } else lobbyMsg = { msg: ECON.ivtBuyLeft(ES) ? et('notEnoughDia') : (L === 'ko' ? '오늘 구매 한도 끝' : 'Daily limit reached'), life: 1.2 }; }
+    return true; }
   if (pnl === 'idle') { const now = Date.now(); for (const [r, d] of [[IDL_1, false], [IDL_2, true]]) if (inR(r, p.x, p.y)) { const out = ECON.idleClaim(ES, MS, META, now, d); if (out) gotMsg('🌲', { gold: out.gold, frag: Object.values(out.frags).reduce((a, b) => a + b, 0) }); } return true; }
   if (pnl === 'gear') { gearTap(p); return true; } return true; }
 // runtime monotonic guard for idle: while the app runs, a wall-clock jump the performance timer didn't see shifts idleT so it can't be farmed
@@ -2513,7 +2565,7 @@ function sweepTap() { if (!MS || !ES) return; const now = Date.now(); ECON.tick(
   if (si.left <= 0) { if (si.ad > 0) { if (ECON.sweepAd(ES)) { saveAll(); lobbyMsg = { msg: (PLAY ? '🎁 ' : '📺 ') + (ko ? '소탕 +1' : 'Sweep +1'), life: 1.4 }; sfx('pouch'); } } else { lobbyMsg = { msg: ko ? '오늘 소탕을 다 썼어요' : 'No sweeps left today', life: 1.6 }; sfx('tap'); } return; }
   if (sweepTap.busy) return; sweepTap.busy = 1;
   try { const tx = { id: 'sweep:' + ES.sw.d + ':' + (ES.sw.used + 1), st, X: SWEEP_X, s: 'p' }; const a = swJ(); if (a.some(x => x.id === tx.id && x.s === 'd')) { tx.id += '-' + (now % 100000); } a.push(tx); swJw(a);
-    const rw = applySweep(tx); if (rw) { gotMsg('⚡', { gold: rw.gold, frag: rw.n, stones: rw.stones, dia: rw.dia }); sweepFx = { t: 0, st }; } }
+    const rw = applySweep(tx); if (rw) { gotMsg('⚡', { gold: rw.gold, ivt: rw.ivt, stones: rw.stones, dia: rw.dia }); sweepFx = { t: 0, st }; } }
   catch (e) { if (String(e && e.message).startsWith('crash@')) throw e; lobbyMsg = { msg: ko ? '소탕하지 못했어요' : 'Sweep failed', life: 1.6 }; }
   finally { sweepTap.busy = 0; } }
 let sweepFx = null;
@@ -2678,7 +2730,7 @@ drawStore = function (hit) { drawStore20(hit); const list = mythReady(); mythPop
 function mythPopTap(p) { const list = mythReady(); if (!list.length || mythPopA < .5 || !inR(MYTH_POP, p.x, p.y)) return false; const m = list[0]; const dst = g.combine(m); if (!dst) return false; sfx('merge'); shake = .25; const r = dst.t === 'p' ? cellRect(dst.i) : BR(dst.i); pops.push({ x: r.x + r.w / 2, y: r.y + r.h / 2, life: 1, max: 1, col: '#ff5a5a', label: T[L].names[m] }); mythPopA = 0; return true; }
 
 // v0.22: 🔮 badge on board/bench units that are ingredients of a not-yet-made mythic (bright = usable ★2, dim = still ★1)
-function drawIngBadges22() { if (!FG.RECIPES || mythOpen || newbie24()) return; const need = FG.CFG.comboStar, isIng = k => Object.keys(FG.RECIPES).some(m => !g.myth[m] && FG.RECIPES[m].includes(k));
+function drawIngBadges22() { if (!FG.RECIPES || mythOpen || newbie24()) return; const need = FG.CFG.comboStar, isIng = k => Object.keys(FG.RECIPES).some(m => !g.myth[m] && (!g.mythAllow || g.mythAllow[m]) && FG.RECIPES[m].includes(k));
   const badge = (x, y, u) => { if (u.star > need || !isIng(u.k)) return; const on = u.star === need; cx.save(); cx.globalAlpha = on ? 1 : .6; cx.beginPath(); cx.arc(x, y, 9, 0, 7); cx.fillStyle = on ? '#7a3fb0' : 'rgba(70,40,100,.85)'; cx.fill(); cx.lineWidth = 2; cx.strokeStyle = on ? '#ffd84d' : 'rgba(255,255,255,.6)'; cx.stroke(); txt('🔮', x, y + 1, 10, '#fff', 'c', 800, 0); cx.restore(); };
   g.board.forEach((u, i) => { if (!u || (drag && drag.moved && drag.src.t === 'p' && drag.src.i === i)) return; const r = cellRect(i); badge(r.cx + 17, r.cy - 30, u); });
   g.bench.forEach((u, i) => { if (!u || (drag && drag.moved && drag.src.t === 'b' && drag.src.i === i)) return; const r = BR(i); badge(r.x + r.w - 10, r.y + 10, u); }); }
