@@ -176,7 +176,7 @@
 </script><script>// Forest Guardians — auto-battle defense simulation (deterministic, no DOM). v0.3 prototype (8 waves)
 (function (root) {
 'use strict';
-const VERSION = '0.25.0';
+const VERSION = '0.26.0';
 // ---------- PRNG: PCG32 ----------
 const M64 = (1n << 64n) - 1n, MUL = 6364136223846793005n;
 function PCG(seed, seq) { this.inc = ((BigInt(seq >>> 0) << 1n) | 1n) & M64; this.s = 0n; this.u32(); this.s = (this.s + BigInt(seed >>> 0) + (BigInt(seed >>> 0) << 32n)) & M64; this.u32(); }
@@ -296,7 +296,7 @@ function endlessWave(w) { if (w <= 20) return WAVES20[w]; const k = Math.pow(INF
 
 function Game(seedStr, meta) {
   this.endless = !!(meta && meta.endless); if (this.endless) meta = Object.assign({}, meta, { stage: INF.stage });
-  this.meta = normMeta(meta); this.mythAllow = this.meta.mythU; const RL = this.meta.rel;
+  this.meta = normMeta(meta); this.mythAllow = this.meta.mythU; this.bc = meta && meta.bc && BOSSDEF ? { k: meta.bc.k, v: meta.bc.v || null } : null; const RL = this.meta.rel;
   const seed = hashStr(seedStr); this.seedStr = seedStr;
   this.rD = new PCG(seed, 1); this.rS = new PCG(seed, 2); this.rC = new PCG(seed, 3); this.rB = new PCG(seed, 4); this.w10 = !this.endless && CFG.maxWave === 10; this.WV = this.w10 ? WAVES : WAVES20;
   this.ug = 0; this.ultK = (meta && meta.ult) || 'bolt'; this.ultN = 0; this.ultQ = []; this.barQ = 0; this.barN = 0; this.barT = -1; this.barLog = []; this.mistT = -1; this.ultLog = []; this.ultT = []; this.bl = {}; this.blessOffer = null; this.blLog = []; this.stepN = 0; this.leakAcc = 0; this.streak = 0; this.lastKillT = -9; this.hsReq = 0; this.autoUlt = !!(meta && meta.autoUlt);
@@ -434,6 +434,7 @@ G.hurt = function (v, dmg, src, ty) {
   if (v.team === 1 && v.bsh > 0) { const ab = Math.min(v.bsh, dmg); v.bsh -= ab; dmg -= ab; if (dmg <= 0.5) { this.fx.push({ t: 'block', x: v.x, y: v.y, life: 0.3 }); return 0; } }
   dmg = Math.max(1, Math.round(dmg)); v.hp -= dmg; v.flash = 0.1; if (v.team === 1 && v.boss) this.ugBoss(v, dmg); if (src && src.team === 0) { const D = this.stats.dmg || (this.stats.dmg = {}); D[src.k] = (D[src.k] || 0) + dmg; } if (this._sk && v.team === 1) { const st = this.stats.skill || (this.stats.skill = {}), q = st[this._sk] || (st[this._sk] = { n: 0, dmg: 0, boss: 0 }); q.dmg += dmg; if (v.boss) q.boss += dmg; }
   this.fx.push({ t: 'num', id: v.id, x: v.x, y: v.y - 18, v: dmg, team: v.team, life: 0.5, m: ty === 'm', mx: v.max });
+  if (v.hp <= 0 && v.bcBoss && v.bcLayer < BC.layers - 1) { v.bcLayer++; v.hp = v.max; v.bcMin = v.max; this.fx.push({ t: 'bcLayer', id: v.id, x: v.x, y: v.y, n: v.bcLayer, life: 1 }); return dmg; } // v0.26 daily boss: HP pool = base HP x layers
   if (v.hp <= 0 && v.team === 1 && v.boss && v.k === 'wolflord' && v.full && !v.reborn && !CFG.noBossSkill) { v.reborn = 1; v.hp = Math.round(v.max * (CFG.wolfRb || 0.4)); v.atk *= 1.3; this.fx.push({ t: 'phase2', id: v.id, x: v.x, y: v.y, life: 1 }); return dmg; }
   if (v.hp <= 0 && v.team === 0 && v.k === 'phoenix' && !v.reborn) { v.reborn = 1; v.mana = 0; v.hp = Math.round(v.max * 0.5); this.fx.push({ t: 'rebirth', x: v.x, y: v.y, life: 0.8 }); return dmg; }
   if (v.hp <= 0 && v.team === 1 && v.k === 'golemboss' && !v.split) { v.split = 1; for (let m = 0; m < 2; m++) { this.spawn({ k: 'golemlet', hm: 1, hp: 1, zone: 1, sum: 1 }); const c = this.enemies[this.enemies.length - 1]; c.hp = c.max = Math.round(v.max * 0.25); c.atk = v.atk * 0.5; c.x = Math.max(14, Math.min(FW - 14, v.x + (m ? 26 : -26))); c.y = v.y; } this.fx.push({ t: 'gsplit', x: v.x, y: v.y, life: 0.6 }); }
@@ -654,7 +655,7 @@ G.step = function (dt) {
   if (CFG.sep > 0) for (const L of [this.allies, this.enemies]) { for (let i = 0; i < L.length; i++) { const a = L[i]; if (a.dead) continue; for (let j = i + 1; j < L.length; j++) { const b = L[j]; if (b.dead) continue; const R0 = (a.boss || b.boss ? 3.6 : 2.6) * CFG.radius; let dx = b.x - a.x, dy = b.y - a.y; const d2 = dx * dx + dy * dy; if (d2 >= R0 * R0) continue; let d = Math.sqrt(d2); if (d < 0.01) { dx = (a.id < b.id ? -1 : 1); dy = 0; d = 1; } const push = (R0 - d) * CFG.sep * Math.min(1, dt * 30) / d, wa = a.boss ? 0.2 : 1, wb = b.boss ? 0.2 : 1, ws = wa + wb; a.x -= dx * push * wa / ws * 2; a.y -= dy * push * wa / ws * 2; b.x += dx * push * wb / ws * 2; b.y += dy * push * wb / ws * 2; }
     a.x = Math.max(8, Math.min(FW - 8, a.x)); } }
   if (this.core <= 0) { this.core = 0; return this.end(false); }
-  if (this.t >= CFG.combatMax) { this.stats.timeouts++; for (const e of this.enemies) { if (e.atWall || e.totem) continue; this.core -= e.boss ? CFG.bossLeak : CFG.leakK; this.stats.leaks++; this.leakW++; } for (const q of this.queue) { this.core -= (ENEMIES[q.k] || {}).boss ? CFG.bossLeak : CFG.leakK; this.leakW++; } this.enemies = []; this.queue = []; if (this.core <= 0) { this.core = 0; return this.end(false); } }
+  if (this.t >= (this.bc && this.wave === BC.wave ? 1e9 : CFG.combatMax)) { this.stats.timeouts++; for (const e of this.enemies) { if (e.atWall || e.totem) continue; this.core -= e.boss ? CFG.bossLeak : CFG.leakK; this.stats.leaks++; this.leakW++; } for (const q of this.queue) { this.core -= (ENEMIES[q.k] || {}).boss ? CFG.bossLeak : CFG.leakK; this.leakW++; } this.enemies = []; this.queue = []; if (this.core <= 0) { this.core = 0; return this.end(false); } }
   if (!this.queue.length && !this.enemies.length) this.waveDone();
 };
 
@@ -720,6 +721,7 @@ G.cast = function (a) { const d = SKILL_DEF[a.k]; if (!d) return false; const t 
   this.fx.push({ t: 'skName', id: a.id, k: a.k, x: a.x, y: a.y, tier: UNITS[a.k].tier, life: UNITS[a.k].tier >= 3 ? 1.0 : 0.7 }); return true; };
 G.waveDone = function () {
   this.log.push({ w: this.wave, core: this.core, leaks: this.leakW, t: this.t, dead: this.allies.filter(a => a.dead).length });
+  if (this.bc && this.wave >= BC.wave) return this.end(true, true);
   if (this.wave >= CFG.maxWave && !this.endless) return this.end(true, true);
   { const wg = Math.round((!this.w10 ? CFG.waveGold(this.wave) : CFG.waveGold(2 * this.wave - 1) + CFG.waveGold(2 * this.wave)) * (1 + 0.02 * this.meta.rel.pot)); this.gold += wg; this.earned += wg; } if ((!this.w10 ? CFG.boxWaves : BOX_W10).includes(this.wave)) this.boxes++; this.phase = 'prep'; this.fx.length = 0; this.delivN = 0; this.scanUsed = 0; this.allies = []; this.shots = [];
 };
@@ -831,6 +833,7 @@ const KIT_PRI = new Set(['wipe', 'charm', 'seal']);
 Object.assign(CFG, { kitOn: true, resOn: true, resHpK: 1, wipeCast: 3, wipeDmg: 0.9, wipeBrk: [0.2, 0.3, 0.28, 0.32, 0.32], wipeStunP: 0.35, wipeKill: true, bossHpMid: [3, 3.5, 2.4, 2.4, 1.2], bossHpBig: [3.2, 3.4, 1.8, 2, 1.2], bossHpInf: 0.45, phase2: true, ph2Aps: 1.25, wallOn: true, wallGap: 6, wallMob: 1, wallBoss: 12, wallBossC: [10, 7, 6, 8, 9], towerOn: true, towerR: 5 * 32, towerAps: 1.5, towerPct: 1.02, w1Mob: 0.6, w2Mob: 0.8, midHpKs: [1.3, 1.15, 1.0], w2MobHi: 1, wipeCore: [0, 0, 0, 0, 0], wipeCoreB: [0, 0, 0, 0, 0], wipeAt: 0.6, wipeT: 25, sealDur: 4, charmDur: 4, charmN: 2, tshP: 0.15, tshT: 5, totemHp: [0.05, 0.08], ctotemDur: 12, focusDur: 6, varOn: true });
 G.bossPlan = function (stage) { const s = Math.max(1, stage | 0), d = Math.min(4, ((s - 1) / 10) | 0), j = (s - 1) % 10, a = BOSS_ASG[j]; return { mid: BOSSM3[d][a[0]], big: BOSSB3[d][a[1]], v: a[2] || null }; };
 G.bossInfo = function (w) {
+  if (this.bc) return { k: this.bc.k, v: this.bc.v };
   if (this.endless) { const i = Math.max(1, w / 5 | 0) - 1; return { k: BOSS30[i % 30], v: CFG.varOn && w >= 30 ? VARS[(Math.imul(i + 1, 2654435761) >>> 0) % 4] : null }; }
   const d = Math.min(4, stageMul(this.meta.stage).d);
   if (!this.w10 || CFG.midBoss === false) return { k: BOSSK[d], v: null };
@@ -845,7 +848,7 @@ G.spawn18 = G.spawn; G.spawn = function (q) { this.spawn18(q); const e = this.en
 G.bossAI18 = G.bossAI; G.bossAI = function (a, dt) {
   if (a.wcast) return; // channeling the wipe: nothing else
   this.bossAI18(a, dt);
-  if (CFG.phase2 && !a.ph2 && a.hp < a.max * 0.5 && !a.untarget) { a.ph2 = 1; a.aps *= CFG.ph2Aps; a.spd *= 1.1; if (a.kt) for (const i in a.kt) if (!isNaN(+i)) { a.kt[i] = Math.min(a.kt[i], 0.6 + 0.4 * i); break; } this.fx.push({ t: 'rage2', id: a.id, x: a.x, y: a.y, k: a.k, life: 1.6 }); this.hsReq += 40; this.stats.ph2 = (this.stats.ph2 || 0) + 1; }
+  if (CFG.phase2 && !a.ph2 && a.hp < a.max * 0.5 && !a.untarget && (!a.bcBoss || a.bcLayer >= 1)) { a.ph2 = 1; a.aps *= CFG.ph2Aps; a.spd *= 1.1; if (a.kt) for (const i in a.kt) if (!isNaN(+i)) { a.kt[i] = Math.min(a.kt[i], 0.6 + 0.4 * i); break; } this.fx.push({ t: 'rage2', id: a.id, x: a.x, y: a.y, k: a.k, life: 1.6 }); this.hsReq += 40; this.stats.ph2 = (this.stats.ph2 || 0) + 1; }
   if (!CFG.kitOn) return; const D = BOSSDEF[a.k]; a.age = (a.age || 0) + dt;
   const al = this.allies.filter(u => !u.dead); if (!al.length) return; const T = this.t;
   const tgt = () => { if (a.tgt && !a.tgt.dead && a.tgt.team === 0) return a.tgt; let b = al[0], bd = 1e9; for (const u of al) { const d = dist(a, u); if (d < bd) { bd = d; b = u; } } return b; };
@@ -950,7 +953,17 @@ G.startWave18 = G.startWave; G.startWave = function () { const S = this.stats; t
 G.end18 = G.end; G.end = function (win, logged) { this.end18(win, logged); if (win || !this.result) return; const S0 = this.stats, W0 = this.ws0 || {}, S = {}; for (const k in W0) S[k] = (S0[k] || 0) - W0[k]; let c = 'leak';
   if (this.bossW) { if (S.wipeHit) c = 'wipe'; else if ((S.charmDmg || 0) > 300) c = 'charm'; else if (S.seal && !S.totemK && !S.sealBar) c = 'seal'; else if ((S.tshImm || 0) > 400 && !S.tbreak) c = 'tshield'; else if ((S.ctotT || 0) > 8) c = 'totem'; else c = 'boss'; }
   this.result.cause = c; };
-const API = { BOSSDEF, BOSSM3, BOSSB3, BOSS_ASG, BOSS30, VARS, RES, KIT_PRI, BOSSM, BOSS10, BAR_BLOCK, WAVES20, RUSH_W10, BOX_W10, BLESS_W10, BLESS, BLESS_W, BLESS_CAP, ULTS, BOSSK, RUSH_W, INF, endlessWave, REL_MAX, CRIT, MAX_STAGE, stageMul, stageName, RECIPES, HERO_BOX_WAVES, buildWaves, RELICS, DIFF, normMeta, FIXED_DAILY, Game, UNITS, ENEMIES, TIER_UNITS, CFG, WAVES, STAR_MUL, TILE, FW, FH, CORE_Y, PCG, hashStr, dailySeed, VERSION, SYN, SYN_OF };
+
+// ---------- v0.26 daily boss challenge: waves 1-4 normal, wave 5 = today's boss (same for everyone), HP pool = base HP x 10 layers, 60 s sim time; score = HP actually removed (start - lowest HP per layer; heals never add score) ----------
+const BC = { wave: 5, layers: 10, time: 60, adj: { boss: 1.04, witch: 0.53, turtleking: 1.1, boarking: 1.35, wolflord: 0.65, moleboss: 1.49, toadboss: 0.99, jellyboss: 0.62, golemboss: 1.18, batqueen: 0.99, spikehog: 1.75, elkchief: 1.56, acornsq: 0.74, waspqueen: 0.99, leechlord: 0.67, crocking: 1.92, sporegolem: 0.99, spiderqueen: 0.75, penguingen: 1.49, swanqueen: 0.68, sealmage: 0.81, crabgen: 0.86, salamander: 0.88, rhino: 1.89, lavabat: 0.87, reddragon: 1.1, shadowcat: 2.44, shadowstag: 2.86, crowcaptain: 1.18, darkowl: 0.97 }, /* per-boss score normalisation (bot-measured) */ tiers: [[1, { ivt: 1 }], [2.5, { ivt: 1, dia: 10 }], [4, { ivt: 2, dia: 15 }], [6, { ivt: 2, dia: 25 }]] };
+function bcToday(dayNum) { const i = ((dayNum % 30) + 30) % 30; return { k: BOSS30[i], v: VARS[((dayNum % 5) + 5) % 5] || null }; }
+function bcTier(r) { let t = 0; BC.tiers.forEach((x, i) => { if (r >= x[0]) t = i + 1; }); return t; }
+G.bcScore = function () { const b = this.bcB; if (!b) return 0; return b.bcLayer * b.max + (b.max - Math.max(0, Math.min(b.bcMin, b.hp))); };
+G.spawnBC = G.spawn; G.spawn = function (q) { const r = this.spawnBC(q); if (this.bc && this.wave === BC.wave) { const e = this.enemies[this.enemies.length - 1]; if (e && e.boss && !e.bcBoss && !q.sum) { e.bcBoss = 1; e.bcLayer = 0; e.bcMin = e.hp; e.full = true; this.bcB = e; this.bcT0 = this.t; } } return r; };
+G.stepBC = G.step; G.step = function (dt) { this.stepBC(dt); const b = this.bcB; if (!b || this.phase !== 'combat') return; if (!b.dead && b.hp < b.bcMin) b.bcMin = b.hp; if (b.dead || this.t - this.bcT0 >= BC.time) { this.bcR = { score: Math.round(b.dead ? BC.layers * b.max : this.bcScore()), base: b.max, t: Math.min(BC.time, this.t - this.bcT0) }; this.bcR.r = this.bcR.score / this.bcR.base * (BC.adj[b.k] || 1); this.bcR.tier = bcTier(this.bcR.r); this.end(true, false); } };
+G.startWaveBC = G.startWave; G.startWave = function () { const r = this.startWaveBC.apply(this, arguments); if (this.bc && this.wave === BC.wave) this.queue = this.queue.filter(q => ENEMIES[q.k] && ENEMIES[q.k].boss && !q.sum); return r; };
+G.endBC = G.end; G.end = function (win, logged) { if (this.bc && !this.bcR && this.bcB) { this.bcR = { score: Math.round(this.bcScore()), base: this.bcB.max, t: this.t - this.bcT0 }; this.bcR.r = this.bcR.score / this.bcR.base * (BC.adj[this.bcB.k] || 1); this.bcR.tier = bcTier(this.bcR.r); } return this.endBC(win, logged); };
+const API = { BC, bcToday, bcTier, BOSSDEF, BOSSM3, BOSSB3, BOSS_ASG, BOSS30, VARS, RES, KIT_PRI, BOSSM, BOSS10, BAR_BLOCK, WAVES20, RUSH_W10, BOX_W10, BLESS_W10, BLESS, BLESS_W, BLESS_CAP, ULTS, BOSSK, RUSH_W, INF, endlessWave, REL_MAX, CRIT, MAX_STAGE, stageMul, stageName, RECIPES, HERO_BOX_WAVES, buildWaves, RELICS, DIFF, normMeta, FIXED_DAILY, Game, UNITS, ENEMIES, TIER_UNITS, CFG, WAVES, STAR_MUL, TILE, FW, FH, CORE_Y, PCG, hashStr, dailySeed, VERSION, SYN, SYN_OF };
 if (typeof module !== 'undefined') module.exports = API; else root.FG = API;
 })(this);
 </script><script>// Forest Guardians — out-of-battle progression (gold coins, keys, character fragments, levels 1..15, relics 0..12). No DOM except localStorage.
@@ -1117,7 +1130,7 @@ function fresh(now) { now = now != null ? now : Date.now();
   return { v: V, lastT: now, day: dayKey(now), hearts: H_MAX, heartT: now, heartBuys: 0, tut: 0, ads: {}, adfree: 0, triplePaid: 0, tripleOn: 0, tripleAd: 0, speedUntil: 0, speedOn: 1,
     berry: 0, dust: 0, gacha: 0, inv: {}, eq: {}, perm: {}, idleT: now, idleDay: dayKey(now), idleN: 0, inf: { d: dayKey(now), n: 0 }, infBest: 0, infWk: { wk: 0, best: 0 },
     pass: { fm: monthKey(now), fxp: 0, fc: 0, pOwned: 0, pxp: 0, pc: 0, cyc: 0 },
-    att: { last: 0, idx: 0, got: 0 }, sw: { d: dayKey(now), used: 0, ad: 0, ids: [] }, daily: { d: dayKey(now), p: {}, got: {} }, begin: {}, ivtF: 0, ivtB: { d: 0, n: 0 }, gid: [], stats: { runs: 0, buys: 0 } }; }
+    att: { last: 0, idx: 0, got: 0 }, sw: { d: dayKey(now), used: 0, ad: 0, ids: [] }, daily: { d: dayKey(now), p: {}, got: {} }, begin: {}, ivtF: 0, ivtB: { d: 0, n: 0 }, bc: { d: 0, used: 0, ad: 0, tier: 0, best: 0 }, gid: [], stats: { runs: 0, buys: 0 } }; }
 function fix(e, now) { const f = fresh(now); if (!e || typeof e !== 'object' || e.v !== V) return f;
   for (const k in f) if (e[k] !== undefined && typeof e[k] === typeof f[k]) f[k] = e[k];
   for (const k of ['hearts', 'berry', 'dust', 'gacha', 'heartBuys']) f[k] = Math.max(0, f[k] | 0);
@@ -1174,6 +1187,15 @@ function ivtFreeLeft(e) { return e.ivtF === e.day ? 0 : IVT_FREE; }
 function ivtFree(e, m) { if (e.ivtF === e.day) return null; e.ivtF = e.day; m.ivt = (m.ivt | 0) + IVT_FREE; return { ivt: IVT_FREE }; }
 function ivtBuyLeft(e) { return Math.max(0, IVT_BUY_MAX - (e.ivtB && e.ivtB.d === e.day ? e.ivtB.n : 0)); }
 function buyIvt(e, m) { if (ivtBuyLeft(e) <= 0 || !(m.dia >= IVT_DIA)) return null; if (!e.ivtB || e.ivtB.d !== e.day) e.ivtB = { d: e.day, n: 0 }; e.ivtB.n++; m.dia -= IVT_DIA; m.ivt = (m.ivt | 0) + 1; e.stats.buys = (e.stats.buys | 0) + 1; return { ivt: 1, cost: IVT_DIA }; }
+// v0.26 daily boss challenge: 3 free + 1 ad (ad-free: 5 total); attempt is consumed on START; reward = best tier of the day, paid as difference, ledger id bc:day:tier
+const BC_FREE = 3, BC_AD = 1, BC_ADFREE = 5;
+function bcDay(e) { if (!e.bc || e.bc.d !== e.day) e.bc = { d: e.day, used: 0, ad: 0, tier: 0, best: 0 }; return e.bc; }
+function bcInfo(e) { const b = bcDay(e), max = e.adfree ? BC_ADFREE : BC_FREE + (b.ad | 0); return { used: b.used | 0, max, left: Math.max(0, max - (b.used | 0)), ad: e.adfree ? 0 : Math.max(0, BC_AD - (b.ad | 0)), tier: b.tier | 0, best: b.best | 0 }; }
+function bcAd(e) { const b = bcDay(e); if (e.adfree || (b.ad | 0) >= BC_AD) return false; b.ad = (b.ad | 0) + 1; return true; }
+function bcStart(e) { const b = bcDay(e); if (bcInfo(e).left <= 0) return false; b.used = (b.used | 0) + 1; return true; }
+function bcReward(e, m, res, tiers) { const b = bcDay(e); if (res.score > (b.best | 0)) b.best = Math.round(res.score); const T = res.tier | 0, out = { ivt: 0, dia: 0, tier: T, prev: b.tier | 0 }; if (T <= (b.tier | 0)) return out;
+  const val = t => t > 0 ? tiers[t - 1][1] : {}; const a = val(T), p0 = val(b.tier | 0), id = 'bc:' + b.d + ':' + T; if (seen(e, id)) { b.tier = T; return out; } mark(e, id);
+  out.ivt = (a.ivt || 0) - (p0.ivt || 0); out.dia = (a.dia || 0) - (p0.dia || 0); m.ivt = (m.ivt | 0) + out.ivt; m.dia = (m.dia || 0) + out.dia; b.tier = T; return out; }
 function buyStones(e, m, pid) { const pk = SHOP.stones.find(x => x.id === pid); if (!pk || !(m.dia >= pk.dia)) return null; m.dia -= pk.dia; m.stones = (m.stones || 0) + pk.n; e.stats.buys = (e.stats.buys | 0) + 1; return { cost: pk.dia, stones: pk.n }; }
 function doBuyHearts(e, m) { const p = heartPrice(e.heartBuys); if (m.dia < p) return null; m.dia -= p; e.heartBuys++; grant(e, m, { hearts: H_BUY }); return { cost: p }; }
 function tutorialHearts(e, m) { if (e.tut) return null; e.tut = 1; return grant(e, m, { hearts: H_TUT }, 'tut'); }
@@ -1247,7 +1269,7 @@ function infEnd(e, m, run, wave, bossKills, rnd, now) { now = clock(e, now); wav
   if (run && run.rewarded && run.id && !seen(e, run.id)) { const g = grant(e, m, { dia: Math.min(INF_DIA_MAX, Math.floor(wave / INF_DIA_W)) }, run.id); if (g) { out.gold = g.gold | 0; out.dia = g.dia | 0; } }
   if (wave >= INF_WK_KEY_W && wk === e.infWk.wk) { const g = grant(e, m, { keys: 1 }, 'infwk:' + wk); if (g) out.keys = 1; } // permanent id: once per week
   return out; }
-const API = { IVT_FREE, IVT_DIA, IVT_BUY_MAX, ivtFreeLeft, ivtFree, ivtBuyLeft, buyIvt, buyStones, SW_FREE, SW_AD, SW_ADFREE, sweepInfo, sweepAd, sweepUse, INF_UNLOCK, INF_RUNS, INF_GOLD_W, INF_GOLD_MAX, INF_DIA_W, INF_DIA_MAX, INF_WK_KEY_W, weekKey, infUnlocked, infLeft, infStart, infEnd, IDLE_CLAIMS, idleHours, idleClaimable, idleClaim, idleShift, TEST, buyEnt, buyKeys, seen, SAVE, H_RUN, H_MAX, H_CAP, H_MS, H_AD, H_BUY, H_TUT, ADS, AD_DIA, AD_GOLD, AD_STONES, SPEED_MS, SHOP, P_LV, P_XP, XP_WIN, XP_LOSS, ATT, DAILY, BEGIN, MYTHS, COMMON, EXCL, EN_P, EN_C, EN_MAX, EN_K, DUST_C, DUST_X, DUST_PICK, GEAR_SLOT_LV,
+const API = { BC_FREE, BC_AD, BC_ADFREE, bcInfo, bcAd, bcStart, bcReward, IVT_FREE, IVT_DIA, IVT_BUY_MAX, ivtFreeLeft, ivtFree, ivtBuyLeft, buyIvt, buyStones, SW_FREE, SW_AD, SW_ADFREE, sweepInfo, sweepAd, sweepUse, INF_UNLOCK, INF_RUNS, INF_GOLD_W, INF_GOLD_MAX, INF_DIA_W, INF_DIA_MAX, INF_WK_KEY_W, weekKey, infUnlocked, infLeft, infStart, infEnd, IDLE_CLAIMS, idleHours, idleClaimable, idleClaim, idleShift, TEST, buyEnt, buyKeys, seen, SAVE, H_RUN, H_MAX, H_CAP, H_MS, H_AD, H_BUY, H_TUT, ADS, AD_DIA, AD_GOLD, AD_STONES, SPEED_MS, SHOP, P_LV, P_XP, XP_WIN, XP_LOSS, ATT, DAILY, BEGIN, MYTHS, COMMON, EXCL, EN_P, EN_C, EN_MAX, EN_K, DUST_C, DUST_X, DUST_PICK, GEAR_SLOT_LV,
   heartPrice, passReward, exclChance, exclId, itemStat, enhP, dayKey, monthKey, fresh, fix, load, save, tick, nextHeartIn, grant, adLeft, adSimple, adReq, useAd, speedOk, runCost, canTriple, startRun, doBuyHearts, tutorialHearts, afterRun, doubleRun, rerollBoss,
   pLv, passXpUsable, addPassXp, claim, finishPaid, buyPass, attendInfo, attend, dailyState, claimDaily, beginState, claimBegin, pull, pickDust, enhance, canEquip, equip, gearOf, gearMeta };
 if (typeof module !== 'undefined') module.exports = API; else root.ECON = API;
@@ -1404,7 +1426,7 @@ function icoCanvas(ch) { ch = ch.replace('️', ''); if (ICO[ch]) return ICO[ch]
     q.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, r = i % 2 ? 3 : 7.5; q.lineTo(-6 + Math.cos(a) * r, Math.sin(a) * r); } q.closePath(); q.fillStyle = '#fff4c0'; q.fill(); q.lineWidth = 2; q.strokeStyle = '#a0521a'; q.stroke(); q.restore(); shine(16, 22, 4, 2); }
   else if (ch === '🌰') { shadow(); q.beginPath(); q.ellipse(32, 38, 16, 18, 0, 0, 7); q.fillStyle = lg(22, 56, '#d9894a', '#8a4a1c'); q.fill(); ol(); q.beginPath(); q.moveTo(12, 28); q.quadraticCurveTo(32, 6, 52, 28); q.quadraticCurveTo(32, 34, 12, 28); q.fillStyle = lg(10, 32, '#a5743f', '#6b4220'); q.fill(); ol(); q.beginPath(); q.moveTo(32, 14); q.lineTo(34, 6); ol(4); shine(25, 40, 3, 6, .3); }
   return c; }
-function txt(s, x, y, size, col, align, weight, stroke) { s = String(s); if (ICO_RE.test(s)) return txtIco(s, x, y, size, col, align, weight, stroke); txt0(s, x, y, size, col, align, weight, stroke); }
+function txt(s, x, y, size, col, align, weight, stroke) { s = String(s); if (size < 9.5) size = 9.5; /* v0.26 readability floor */ if (ICO_RE.test(s)) return txtIco(s, x, y, size, col, align, weight, stroke); txt0(s, x, y, size, col, align, weight, stroke); }
 function txtIco(s, x, y, size, col, align, weight, stroke) { cx.font = (weight || 800) + ' ' + size + 'px ' + FONT; const parts = s.split(ICO_SPLIT).filter(t => t !== ''), isI = t => ICO_RE.test(t) && t.replace(ICO_SPLIT, '') === '', is = size * 1.4;
   let w = 0; for (const t of parts) w += isI(t) ? is : cx.measureText(t).width; let X = align === 'c' ? x - w / 2 : align === 'r' ? x - w : x;
   for (const t of parts) { if (isI(t)) { cx.drawImage(icoCanvas(t), X, y - is / 2 - size * .04, is, is); X += is; } else { txt0(t, X, y, size, col, null, weight, stroke); X += cx.measureText(t).width; } } }
@@ -1592,7 +1614,7 @@ function draw(dt) {
   // HUD
   const hud = cx.createLinearGradient(0, 0, 0, FY0); hud.addColorStop(0, '#3f6b2a'); hud.addColorStop(1, '#2f5420'); cx.fillStyle = hud; cx.fillRect(0, 0, W, FY0);
   btn(BTN_LANG, 'II', true, '#6d8f3e', 14); btn(BTN_SND, muted ? '🔇' : '🔊', true, '#6d8f3e', 13); if (speed > 1 && ES && !ECON.speedOk(ES, Date.now())) speed = 1; btn(BTN_SPD, speed > 1 ? speed + 'x' : (ES && !ECON.speedOk(ES, Date.now()) ? (PLAY ? '🎁2x' : '📺2x') : '1x'), true, speed > 1 ? '#f08a24' : '#6d8f3e', speed > 1 || !ES || ECON.speedOk(ES, Date.now()) ? 14 : 11);
-  txt(g.endless ? '♾ ' + t('wave') + ' ' + (g.wave + (prep ? 1 : 0)) : t('wave') + ' ' + Math.min(CFG.maxWave, g.wave + (prep ? 1 : 0)) + '/' + CFG.maxWave, 200, 22, 17, '#fff', 'c', 800, 4);
+  txt(g.endless ? '♾ ' + t('wave') + ' ' + (g.wave + (prep ? 1 : 0)) : t('wave') + ' ' + Math.min(g.bc ? FG.BC.wave : CFG.maxWave, g.wave + (prep ? 1 : 0)) + '/' + (g.bc ? FG.BC.wave : CFG.maxWave), 200, 22, 17, '#fff', 'c', 800, 4);
   txt('🌰 ' + g.gold, 14, 46, 16, '#ffe9a8', null, 800, 3);
   txt(t('core'), 214, 46, 12, '#e8f5d0', 'r', 800, 3); rr(220, 39, 160, 14, 7); cx.fillStyle = 'rgba(0,0,0,.35)'; cx.fill(); rr(220, 39, 160 * Math.min(1, g.core / (g.coreMax || CFG.coreHp)), 14, 7); cx.fillStyle = g.core > (g.coreMax || CFG.coreHp) * 0.3 ? '#8be05a' : '#ff6b5a'; cx.fill(); txt(String(g.core), 388, 46, 14, '#fff', null, 800, 3);
   // middle panel: next wave preview
@@ -1764,7 +1786,7 @@ function drawMyth() {
       cx.globalAlpha = done ? .45 : st.s === 'none' ? .45 : 1; sprite(k, x + 18, y + 24, 30, { noShadow: 1 }); cx.globalAlpha = 1;
       let nm = T[L].names[k]; cx.font = '800 10px ' + FONT; while (nm.length > 2 && cx.measureText(nm).width > w - 38) nm = nm.slice(0, -1); if (nm !== T[L].names[k]) nm += '…';
       txt(nm, x + 36, y + 14, 10, done ? '#d8cbb4' : '#4a2e14', null, 800);
-      if (!done) { const lab = ingLab22(st); rr(x + 3, y + h - 19, w - 6, 16, 8); cx.fillStyle = c[0]; cx.fill(); txt(lab, x + w / 2, y + h - 11, 9.5, '#fff', 'c', 800, 0); txt('★'.repeat(Math.max(1, Math.min(3, (st.s === 'ok' ? 2 : st.n1 ? 1 : st.s === 'over' ? 3 : 0)))), x + 36, y + 27, 9, st.s === 'none' ? '#b8a88e' : '#e0a800', null, 800); } });
+      if (!done) { const lab = ingLab22(st); rr(x + 3, y + h - 19, w - 6, 16, 8); cx.fillStyle = c[0]; cx.fill(); txt(lab, x + w / 2, y + h - 11, 10.5, '#fff', 'c', 800, 0); txt('★'.repeat(Math.max(1, Math.min(3, (st.s === 'ok' ? 2 : st.n1 ? 1 : st.s === 'over' ? 3 : 0)))), x + 36, y + 27, 10, st.s === 'none' ? '#b8a88e' : '#e0a800', null, 800); } });
     if (g.mythAllow && !g.mythAllow[m]) { const ci = META.CH_MYTH.indexOf(m); rr(r.x, r.y, r.w, r.h, 14); cx.fillStyle = 'rgba(30,18,40,.72)'; cx.fill(); txt('🔒 ' + (ko ? '잠긴 신화' : 'Locked mythic'), r.x + r.w / 2, r.y + 30, 16, '#e8dcff', 'c', 900, 3);
       txt(ci >= 0 ? (ko ? (ci + 1) + '챕터를 깨면 해금' : 'Clear chapter ' + (ci + 1) + ' to unlock') : (ko ? '상점에서 💎' + META.MYTH_BUY.toLocaleString() + '로 해금 · 모집에서 가끔' : 'Unlock in shop 💎' + META.MYTH_BUY.toLocaleString() + ' · rarely from recruit'), r.x + r.w / 2, r.y + 56, 12, '#d9c7ff', 'c', 800, 2); return; }
     const b = MY_BTN(i); if (done) txt(t('made') + ' ✓', b.x + b.w / 2, b.y + b.h / 2, 15, '#ffd84d', 'c', 800, 3);
@@ -1799,7 +1821,7 @@ function drawOffer(dt) {
 }
 function drawEnd(dt) {
   if (canRevive()) { drawRevive(); return; }
-  const first = endShown === 0; endShown += dt; const r = g.result; if (first) { setBest(r.score); sfx(r.win ? 'win' : 'lose'); if (g.endless && MS && !g._infRes) { g._infRes = ES ? ECON.infEnd(ES, MS, g._inf, Math.max(0, r.wave - 1), g.stats.bossKills || 0, Math.random, Date.now()) : { wave: r.wave - 1 }; if (ES) SAVEE(); SAVEM(); } if (MS && !g._rew && !g.endless) { g._rew = META.reward(MS, { wave: (r.win ? r.wave : Math.max(0, r.wave - 1)) * (20 / CFG.maxWave), win: r.win, bosses: (g.stats.bossKills || 0) * 2, bossW: (g.stats.bossW || []).flatMap(w => CFG.maxWave === 10 ? [2 * w - 5, 2 * w] : [w]), myths: Object.keys(g.myth || {}), stage: isDaily ? 1 : g.meta.stage, mult: g._mult || 1, id: g._runId }); if (ES && !isDaily) { ECON.afterRun(ES, MS, { win: r.win, bosses: g.stats.bossKills || 0, mult: g._mult || 1 }); SAVEE(); } SAVEM(); } }
+  const first = endShown === 0; endShown += dt; const r = g.result; if (first) { setBest(r.score); sfx(r.win ? 'win' : 'lose'); if (g.endless && MS && !g._infRes) { g._infRes = ES ? ECON.infEnd(ES, MS, g._inf, Math.max(0, r.wave - 1), g.stats.bossKills || 0, Math.random, Date.now()) : { wave: r.wave - 1 }; if (ES) SAVEE(); SAVEM(); } if (MS && g.bc && !g._bcRes && ES) { g._bcRes = ECON.bcReward(ES, MS, g.bcR || { score: 0, tier: 0 }, FG.BC.tiers); SAVEE(); SAVEM(); } if (MS && !g._rew && !g.endless && !g.bc) { g._rew = META.reward(MS, { wave: (r.win ? r.wave : Math.max(0, r.wave - 1)) * (20 / CFG.maxWave), win: r.win, bosses: (g.stats.bossKills || 0) * 2, bossW: (g.stats.bossW || []).flatMap(w => CFG.maxWave === 10 ? [2 * w - 5, 2 * w] : [w]), myths: Object.keys(g.myth || {}), stage: isDaily ? 1 : g.meta.stage, mult: g._mult || 1, id: g._runId }); if (ES && !isDaily) { ECON.afterRun(ES, MS, { win: r.win, bosses: g.stats.bossKills || 0, mult: g._mult || 1 }); SAVEE(); } SAVEM(); } }
   cx.fillStyle = 'rgba(20,12,4,' + Math.min(.82, endShown * 2) + ')'; cx.fillRect(0, 0, W, H); if (endShown < .4) return;
   const team = g.board.filter(Boolean).slice(0, 5); team.forEach((u, i) => sprite(u.k, W / 2 + (i - (team.length - 1) / 2) * 62, 200 + (r.win ? -Math.abs(Math.sin(clock * 5 + i)) * 12 : 0), 58, { noShadow: 1, rot: r.win ? 0 : .3 }));
   txt(window.STORY_LINES ? STORY_LINES[r.win ? 'win' : 'lose'][L] : (r.win ? t('win') : t('lose')), W / 2, 280, 19, r.win ? '#9cff6a' : '#ff8a7a', 'c', 800, 5);
@@ -1813,7 +1835,7 @@ function drawEnd(dt) {
   if (r.win && window.STORY_LINES) { cx.globalAlpha = .9; wrapText((L === 'ko' ? '도적 곰: ' : 'Bandit Bear: ') + STORY_LINES.tease[L], W / 2, 672, W - 70, 13, '#d9c7a6', 19, 700); cx.globalAlpha = 1; }
   if (g._rew) { const R2 = g._rew, fr = Object.values(R2.frags).reduce((a, b) => a + b, 0); rr(40, 408, W - 80, R2.first || R2.chest || (R2.newCodex && R2.newCodex.length) ? 60 : 40, 14); cx.fillStyle = 'rgba(255,246,220,.14)'; cx.fill();
     txt(lt('rewards') + ':  🪙 +' + R2.gold + '   🗝 +' + R2.keys + (fr ? '   🧩 +' + fr : '') + (R2.stones ? '   🔷 +' + R2.stones : '') + (R2.dia ? '   💎 +' + R2.dia : '') + (R2.ivt ? '   🎟 +' + R2.ivt : ''), W / 2, 428, 15, '#ffe9a8', 'c', 800, 3); const ex = [R2.chest ? (L === 'ko' ? '🎁 챕터 보상 🎟' : '🎁 Chapter chest 🎟') + R2.chest.ivt + ' 💎' + R2.chest.dia + (R2.chest.myth ? (L === 'ko' ? ' · 🔓 신화 해금: ' : ' · 🔓 Mythic: ') + T[L].names[R2.chest.myth] : '') : '', R2.keyBonus ? lt('keyBonus') : R2.first ? lt('firstClear') : '', R2.newCodex && R2.newCodex.length ? lt('codexNew') + ' ' + R2.newCodex.map(k => T[L].names[k]).join(', ') : ''].filter(Boolean).join(' · '); if (ex) txt(ex, W / 2, 452, 12, '#9cff6a', 'c', 800, 3); }
-  const nx = endNext(); btn(END_AGAIN, nx ? lt('nextStage') + ' ' + FG.stageName(nx) + ' ▶' : t('again'), true, '#3fae4a'); { const lu = lvupHint24(); btn(END_HOME, lu ? (L === 'ko' ? '⬆ 동료 레벨업 하러 가기 (' + lu.n + '명)' : '⬆ Level up friends (' + lu.n + ')') : lt('lobby'), true, lu ? '#e08a1e' : '#7a8f4a'); }
+  const nx = endNext(); btn(END_AGAIN, g.bc ? (L === 'ko' ? '👑 다시 도전 (' : '👑 Retry (') + (ES ? ECON.bcInfo(ES).left + ECON.bcInfo(ES).ad : 0) + ')' : nx ? lt('nextStage') + ' ' + FG.stageName(nx) + ' ▶' : t('again'), true, '#3fae4a'); { const lu = lvupHint24(); btn(END_HOME, lu ? (L === 'ko' ? '⬆ 동료 레벨업 하러 가기 (' + lu.n + '명)' : '⬆ Level up friends (' + lu.n + ')') : lt('lobby'), true, lu ? '#e08a1e' : '#7a8f4a'); }
   if (!isDaily) txt(lt('stage') + ' ' + FG.stageName(g.meta.stage), W / 2, 306, 13, '#d9c7a6', 'c', 700, 2);
   drawEndExtras();
 }
@@ -1887,7 +1909,7 @@ const canUp = k => META.canLevel(MS, k);
 const RCARD = i => ({ x: 12 + (i % 4) * 108, y: 60 + ((i / 4) | 0) * 52, w: 102, h: 49 });
 const L_UP = { x: 230, y: 650, w: 200, h: 60 }, L_CHEST = { x: 20, y: 650, w: 200, h: 60 };
 const R_UP = { x: 230, y: 470, w: 200, h: 58 }, R_OPEN = { x: 20, y: 600, w: 200, h: 60 }, R_FREE = { x: 230, y: 600, w: 200, h: 60 };
-const B_DIFF = i => i === 0 ? { x: 76, y: 200, w: 40, h: 56 } : i === 4 ? { x: 334, y: 200, w: 40, h: 56 } : { x: 120, y: 200, w: 210, h: 56 }, STG_P = j => ({ x: 105 + (j < 5 ? j : 9 - j) * 60, y: j < 5 ? 418 : 488 }), B_STG = j => { const p = STG_P(j); return { x: p.x - 28, y: p.y - 28, w: 56, h: 56 }; }, B_START = { x: 30, y: 540, w: 236, h: 64 }, B_SWEEP = { x: 274, y: 540, w: 82, h: 64 }, B_DAILY = { x: 30, y: 614, w: 192, h: 52 }, B_INF = { x: 228, y: 614, w: 192, h: 52 }, B_STORY = { x: 6, y: 286, w: 60, h: 66 };
+const B_DIFF = i => i === 0 ? { x: 76, y: 200, w: 40, h: 56 } : i === 4 ? { x: 334, y: 200, w: 40, h: 56 } : { x: 120, y: 200, w: 210, h: 56 }, STG_P = j => ({ x: 105 + (j < 5 ? j : 9 - j) * 60, y: j < 5 ? 418 : 488 }), B_STG = j => { const p = STG_P(j); return { x: p.x - 28, y: p.y - 28, w: 56, h: 56 }; }, B_START = { x: 30, y: 540, w: 236, h: 64 }, B_SWEEP = { x: 274, y: 540, w: 82, h: 64 }, B_DAILY = { x: 30, y: 614, w: 126, h: 52 }, B_INF = { x: 294, y: 614, w: 126, h: 52 }, B_BC = { x: 162, y: 614, w: 126, h: 52 }, B_STORY = { x: 6, y: 286, w: 60, h: 66 };
 function bar(x, y, w, h, f, col) { rr(x, y, w, h, h / 2); cx.fillStyle = 'rgba(0,0,0,.35)'; cx.fill(); if (f > 0) { rr(x, y, Math.max(h, w * Math.min(1, f)), h, h / 2); cx.fillStyle = col; cx.fill(); } }
 function drawLobby(dt) {
   if (!BG || BGch !== curCh()) makeBG(); cx.drawImage(BG, 0, FY0 - 40, W, BGH); cx.fillStyle = 'rgba(20,30,10,.35)'; cx.fillRect(0, 0, W, H);
@@ -1936,7 +1958,7 @@ function drawSquad() {
     if (rigOk(k)) rigAt('o' + k, k, r.x + r.w / 2, r.y + 100, RCLS(k) === 'quad' ? 56 : 74, 1); else if (pxOk(k)) pxDraw(k, 0, r.x + r.w / 2, r.y + 96, 1.5, { face: 1 }); else sprite(k, r.x + r.w / 2, r.y + 62, 64);
     const und = d.tier === 4 && !META.mythOK(MS, k); if (und) { rr(r.x + 3, r.y + 3, r.w - 6, r.h - 6, 12); cx.fillStyle = 'rgba(30,18,40,.82)'; cx.fill(); txt('?', r.x + r.w / 2, r.y + 76, 44, '#cdb6ff', 'c', 900, 4); }
     txt(und ? '🔒' : lt('lv') + ' ' + l, r.x + 8, r.y + 12, 12, und ? '#e8dcff' : '#5a3a1e', null, 800); txt(d.dt === 'm' ? '✦' : '⚔', r.x + r.w - 10, r.y + 13, 13, d.dt === 'm' ? '#7a4cff' : '#b0562a', 'r', 800);
-    if (d.tier === 4 && c) { bar(r.x + 8, r.y + r.h - 16, r.w - 16, 9, (MS.stones || 0) / c.s, MS.stones >= c.s ? '#7be04f' : '#b47cff'); txt('🔷 ' + (MS.stones || 0) + '/' + c.s, r.x + r.w / 2, r.y + r.h - 12, 9, '#fff', 'c', 800, 2); if (und) { rr(r.x + 6, r.y + r.h - 22, r.w - 12, 18, 8); cx.fillStyle = 'rgba(30,18,40,.95)'; cx.fill(); txt(lt('undiscovered'), r.x + r.w / 2, r.y + r.h - 13, 10, '#e8dcff', 'c', 800, 0); } }
+    if (d.tier === 4 && c) { bar(r.x + 8, r.y + r.h - 16, r.w - 16, 9, (MS.stones || 0) / c.s, MS.stones >= c.s ? '#7be04f' : '#b47cff'); txt('🔷 ' + (MS.stones || 0) + '/' + c.s, r.x + r.w / 2, r.y + r.h - 12, 9, '#fff', 'c', 800, 2); if (und) { rr(r.x + 6, r.y + r.h - 22, r.w - 12, 18, 8); cx.fillStyle = 'rgba(30,18,40,.95)'; cx.fill(); txt(lt('undiscovered'), r.x + r.w / 2, r.y + r.h - 13, 11, '#e8dcff', 'c', 800, 0); } }
     else if (c) { bar(r.x + 8, r.y + r.h - 16, r.w - 16, 9, MS.fr[k] / c.f, MS.fr[k] >= c.f ? '#7be04f' : '#4fb4ff'); txt(MS.fr[k] + '/' + c.f, r.x + r.w / 2, r.y + r.h - 12, 9, '#fff', 'c', 800, 2); } else txt(lt('maxed'), r.x + r.w / 2, r.y + r.h - 12, 12, '#e8912c', 'c', 800, 2);
     if (canUp(k)) { cx.fillStyle = '#ff4a3a'; cx.beginPath(); cx.arc(r.x + r.w - 10, r.y + 28, 6, 0, 7); cx.fill(); } });
   // detail
@@ -1982,6 +2004,7 @@ function lobbyTap(p) {
       if (inR(B_TRI, p.x, p.y)) { if (tripleOn || ECON.canTriple(ES)) { tripleOn = !tripleOn; sfx('tap'); } else lobbyMsg = { msg: et('tripleInfo'), life: 1.6 }; return; } }
     if (inR(B_START, p.x, p.y)) { tryStart(false); return; }
     if (inR(B_DAILY, p.x, p.y)) { tryStart(true); return; }
+    if (inR(B_BC, p.x, p.y)) { bcTap26(); return; }
     if (inR(B_INF, p.x, p.y)) { if (!MS || !ES || ECON.infUnlocked(MS)) tryStart(false, true); else lobbyMsg = { msg: L === 'ko' ? '어려움 3-10을 깨면 무한 모드가 열려요' : 'Clear Hard 3-10 to unlock Endless', life: 1.8 }; sfx('tap'); return; }
   } else if (tab === 0) {
     for (let i = 0; i < 5; i++) if (inR(SQT(i), p.x, p.y)) { sqT = i; selU = sqUnits()[0]; sfx('tap'); }
@@ -2074,7 +2097,7 @@ cv.addEventListener('pointerdown', ev => {
   if (screen === 'title' && tab === 1 && !(tut && tut.lobby) && ultChipTap(p)) return;
   if (screen === 'title' && tab === 1 && !pnl && !(tut && tut.lobby) && inR(B_SWEEP, p.x, p.y)) { sweepTap(); return; }
   if (screen === 'title') { if (tut && tut.lobby) { const want = TAB_R(tut.step === 9 ? 0 : 2); if (inR(want, p.x, p.y)) { if (tut.step === 9) tut.step = 10; else tutFinish(); } } lobbyTap(p); return; }
-  if (g.phase === 'over') { if (canRevive()) { reviveTap(p); return; } if (endShown > .4) { if (endExtrasTap(p)) return; if (inR(END_AGAIN, p.x, p.y)) { if (g.endless) { if (!tryStart(false, true)) { screen = 'title'; tab = 1; } } else { const nx = endNext(); if (nx) { MS.stage = nx; SAVEM(); } if (!tryStart(isDaily)) { screen = 'title'; tab = 1; } } } else if (inR(END_HOME, p.x, p.y)) { const lu = lvupHint24(); screen = 'title'; tab = 1; if (tut && !tut.lobby) tut = { step: 9, t: 0, lobby: 1 }; if (lu) { tab = 0; selU = lu.k; if (tut && tut.lobby && tut.step === 9) tut.step = 10; } }; } return; }
+  if (g.phase === 'over') { if (canRevive()) { reviveTap(p); return; } if (endShown > .4) { if (endExtrasTap(p)) return; if (inR(END_AGAIN, p.x, p.y)) { if (g.bc) { screen = 'title'; tab = 1; bcTap26(); return; } if (g.endless) { if (!tryStart(false, true)) { screen = 'title'; tab = 1; } } else { const nx = endNext(); if (nx) { MS.stage = nx; SAVEM(); } if (!tryStart(isDaily)) { screen = 'title'; tab = 1; } } } else if (inR(END_HOME, p.x, p.y)) { const lu = lvupHint24(); screen = 'title'; tab = 1; if (tut && !tut.lobby) tut = { step: 9, t: 0, lobby: 1 }; if (lu) { tab = 0; selU = lu.k; if (tut && tut.lobby && tut.step === 9) tut.step = 10; } }; } return; }
   if (inR(BTN_SPD, p.x, p.y)) { if (speed > 1 || !ES || ECON.speedOk(ES, Date.now())) speed = speed === 1 ? 2 : 1; else if (ECON.adSimple(ES, MS, 'speed', Date.now())) { SAVEE(); speed = 2; say('⏩ 2× 15:00 ' + (ES.adfree ? '' : '(' + et('test') + (PLAY ? ')' : ' 📺)')), 1.6); } else say('0 ' + et('left'), 1.2); sfx('tap'); return; }
   if (inR(BTN_SND, p.x, p.y)) { muted = !muted; try { localStorage.setItem('fg-mute', muted ? '1' : '0'); } catch (e) {} return; }
   if (tut && !tut.lobby && !tutAllow(p)) return;
@@ -2180,7 +2203,7 @@ function pauseTap(p) { if (inR(PM_RES, p.x, p.y)) { pauseMenu = false; sfx('tap'
   if (inR(PM_QUIT, p.x, p.y)) { pauseMenu = false; if (tut) tutFinish(); g._gaveUp = 1; g.end(false); endShown = 0; sfx('leak'); } }
 // ---------- economy UI (inserted inside ui.js closure by build.py) ----------
 let ES = window.ECON ? ECON.load() : null; const SAVEE = () => saveAll();
-const RC1 = { x: 30, y: 466, w: 190, h: 54 }, RC10 = { x: 230, y: 466, w: 190, h: 54 }, RCF = { x: 30, y: 530, w: 190, h: 46 }, RCB = { x: 230, y: 530, w: 190, h: 46 }; let lastRec = null, lastRecT = 0;
+const RC1 = { x: 30, y: 470, w: 190, h: 62 }, RC10 = { x: 230, y: 470, w: 190, h: 62 }, RCF = { x: 30, y: 544, w: 190, h: 40 }, RCB = { x: 230, y: 544, w: 190, h: 40 }; let lastRec = null, lastRecT = 0;
 let oddsBack = null, pnl = null, pnlT = 'shop', gearU = null, gearSel = null, tripleOn = false, lastGacha = null, lastEnh = null;
 const ET = {
   en: { hearts: 'Hearts', shop: 'Shop', pass: 'Pass', missions: 'Missions', attend: 'Check-in', close: 'Close', test: 'TEST', watch: 'Watch ad', instant: 'Get now', left: 'left today', noHeart: 'Not enough hearts',
@@ -2243,7 +2266,7 @@ function tryStart(daily, endless) { if (!ES) { newGame(daily, endless); return t
 const PN = { x: 12, y: 58, w: 426, h: 660 }, PN_X = { x: 392, y: 64, w: 40, h: 36 }, PT = i => ({ x: 22 + i * 102, y: 108, w: 96, h: 34 });
 function pFrame(title) { cx.fillStyle = 'rgba(10,6,2,.6)'; cx.fillRect(0, 0, W, H); rr(PN.x, PN.y, PN.w, PN.h, 18); cx.fillStyle = 'rgba(52,30,12,.98)'; cx.fill(); cx.strokeStyle = '#e8912c'; cx.lineWidth = 3; cx.stroke();
   txt(title, 28, 82, 19, '#fff6dc', null, 800, 3); btn(PN_X, '✕', true, '#7a8f4a', 16); }
-function row(y, label, sub, b, bl, on, col) { rr(22, y, W - 44, 56, 12); cx.fillStyle = 'rgba(255,246,220,.08)'; cx.fill(); txt(label, 34, y + 20, 14, '#fff6dc', null, 800); if (sub) txt(sub, 34, y + 40, 11, '#d9c7a6', null, 700); if (b) btn(b, bl, on, col || '#3fae4a', 12); }
+function row(y, label, sub, b, bl, on, col) { rr(22, y, W - 44, 56, 12); cx.fillStyle = 'rgba(255,246,220,.08)'; cx.fill(); txt(label, 34, y + 20, 14, '#fff6dc', null, 800); if (sub) { let fs = 12; cx.font = '700 12px ' + FONT; while (fs > 10 && cx.measureText(sub).width > (b ? 244 : W - 80)) { fs -= .5; cx.font = '700 ' + fs + 'px ' + FONT; } txt(sub, 34, y + 40, fs, '#d9c7a6', null, 700); } if (b) btn(b, bl, on, col || '#3fae4a', 12); }
 const RB = y => ({ x: 286, y: y + 9, w: 140, h: 38 });
 function drawPanel(now) { if (!pnl || !ES) return; ECON.tick(ES, MS, now);
   if (pnl === 'hearts') { pFrame('❤ ' + et('hearts') + ' ' + ES.hearts + '/' + ECON.H_MAX); const nh = ECON.nextHeartIn(ES, now); txt(nh ? et('next') + ' +1 ' + fmtMs(nh) : et('full'), 28, 120, 13, '#ffd0d0', null, 700);
@@ -2294,7 +2317,7 @@ function drawPanel(now) { if (!pnl || !ES) return; ECON.tick(ES, MS, now);
       : (L === 'ko' ? '이용약관 · 개인정보 처리방침: 스토어 출시 전에 링크가 추가됩니다. 이 빌드는 내부 테스트용(RC-Internal)으로 결제·광고가 실제로 일어나지 않습니다.' : 'Terms of Service · Privacy Policy: links will be added before store release. This is an internal test build (RC-Internal); no real payments or ads.'), 28, PLAY ? 574 : 514, W - 70, 12, '#d9c7a6', 18, 700);
     txt('SoopSoop Defense v' + VERSION + (PLAY ? ' · Closed Test' : ' · RC-Internal'), 28, y + 16, 12, '#8d8270', null, 700); return; }
   if (pnl === 'recruit') { const ko = L === 'ko'; pFrame('🎟 ' + (ko ? '영웅 모집' : 'Recruit') + '  ·  🎟 ' + (MS.ivt | 0) + '  ·  💎 ' + MS.dia);
-    txt(ko ? '🎟 1장 = 동료 카드 10장 (조각 +1씩) · 신화 카드 ' + (META.MYTH_CARD_P * 100) + '%/장' : '🎟 1 = 10 friend cards (+1 fragment each) · Mythic card ' + (META.MYTH_CARD_P * 100) + '%/card', W / 2, 108, 11, '#d9c7a6', 'c', 700);
+    txt(ko ? '🎟 1장 = 동료 카드 10장 (조각 +1씩) · 신화 카드 ' + (META.MYTH_CARD_P * 100) + '%/장' : '🎟 1 = 10 friend cards (+1 fragment each) · Mythic card ' + (META.MYTH_CARD_P * 100) + '%/card', W / 2, 108, 12, '#d9c7a6', 'c', 700);
     const R = lastRec; if (!R) { txt(ko ? '초대장으로 동료를 모집해 조각을 모아요' : 'Use invitations to recruit friends and collect fragments', W / 2, 260, 14, '#fff6dc', 'c', 800, 2); txt(ko ? '판 보상 · 첫 클리어 · 챕터 보상 · 매일 무료 2장' : 'From runs · first clears · chapter chests · 2 free daily', W / 2, 286, 12, '#d9c7a6', 'c', 700); }
     else { const list = R.cards.length <= 10 ? R.cards.map(c => Object.assign({ n: 1 }, c)) : (() => { const agg = {}, out = []; for (const c of R.cards) { if (c.myth || c.dia) { out.push(Object.assign({ n: 1 }, c)); continue; } agg[c.k] = (agg[c.k] || 0) + 1; } Object.keys(agg).sort((a, b) => UNITS[b].tier - UNITS[a].tier || agg[b] - agg[a]).forEach(k => out.push({ k, n: agg[k] })); return out.slice(0, 15); })();
       const age = clock - lastRecT; list.forEach((c, i) => { const col = i % 5, rw = (i / 5) | 0, x = 26 + col * 80, y = 124 + rw * 104, sh = Math.min(1, Math.max(0, (age - i * 0.06) * 6)); if (sh <= 0) return; cx.save(); cx.globalAlpha = sh;
@@ -2303,11 +2326,12 @@ function drawPanel(now) { if (!pnl || !ES) return; ECON.tick(ES, MS, now);
         else if (c.dia) { txt('💎', x + 37, y + 44, 26, '#fff', 'c', 800); txt('+' + c.dia, x + 37, y + 82, 13, '#2a6fb0', 'c', 900); }
         else { sprite(c.k, x + 37, y + 46, 44); let nm = T[L].names[c.k]; cx.font = '800 10px ' + FONT; while (nm.length > 2 && cx.measureText(nm).width > 68) nm = nm.slice(0, -1); txt(nm, x + 37, y + 76, 10, '#4a2e14', 'c', 800); txt('🧩 +' + c.n, x + 37, y + 89, 10, '#2f8a3a', 'c', 900); }
         cx.restore(); });
-      if (R.newMyth && R.newMyth.length) txt((ko ? '🔓 신화 해금: ' : '🔓 Mythic unlocked: ') + R.newMyth.map(k => T[L].names[k]).join(', '), W / 2, 440, 14, '#ffe066', 'c', 900, 3); }
+      if (R.newMyth && R.newMyth.length && R.cards.length <= 10) txt((ko ? '🔓 신화 해금: ' : '🔓 Mythic unlocked: ') + R.newMyth.map(k => T[L].names[k]).join(', '), W / 2, 440, 14, '#ffe066', 'c', 900, 3); }
     const f = ECON.ivtFreeLeft(ES), bl = ECON.ivtBuyLeft(ES);
     btn(RC1, (ko ? '모집 ×1  ' : 'Recruit ×1  ') + '🎟1', (MS.ivt | 0) >= 1, '#3fae4a', 15); btn(RC10, (ko ? '모집 ×10  ' : 'Recruit ×10  ') + '🎟10', (MS.ivt | 0) >= 10, '#e08a1e', 15);
+    if (R && R.cards.length > 10) { const tc = [0, 0, 0, 0]; for (const c of R.cards) if (c.k) tc[UNITS[c.k].tier]++; txt((R.newMyth.length ? (ko ? '🔓 신화 ' : '🔓 Mythic ') + R.newMyth.length + '  ·  ' : '') + [3, 2, 1, 0].map(i => T[L].tiers[i] + ' ' + tc[i]).join('  ·  '), W / 2, 456, 12, '#ffe9a8', 'c', 800, 2); }
     btn(RCF, f ? (ko ? '오늘 무료 🎟' + f + ' 받기' : 'Free 🎟' + f + ' today') : (ko ? '무료: 내일 다시' : 'Free: tomorrow'), f > 0, '#3f8fd0', 13); btn(RCB, (ko ? '🎟 사기 💎' : 'Buy 🎟 💎') + ECON.IVT_DIA + ' (' + bl + '/' + ECON.IVT_BUY_MAX + ')', bl > 0 && MS.dia >= ECON.IVT_DIA, '#8e44ad', 13);
-    { const P = META.TIER_W.map(x => Math.round(x * 100)), nm = T[L].tiers; txt((ko ? '확률(카드별): ' : 'Odds per card: ') + [0, 1, 2, 3].map(i => nm[i] + ' ' + P[i] + '%').join(' · ') + (ko ? ' · 만렙 동료 제외' : ' · maxed excluded'), W / 2, 640, 10, '#d9c7a6', 'c', 700); } return; }
+    { const P = META.TIER_W.map(x => Math.round(x * 100)), nm = T[L].tiers; txt((ko ? '확률(카드별): ' : 'Odds per card: ') + [0, 1, 2, 3].map(i => nm[i] + ' ' + P[i] + '%').join(' · ') + (ko ? ' · 만렙 동료 제외' : ' · maxed excluded'), W / 2, 640, 11, '#d9c7a6', 'c', 700); } return; }
   if (pnl === 'idle') { const now = Date.now(), h = ECON.idleHours(ES, now), amt = META.idleAmount(MS, h); pFrame('🌲 ' + (L === 'ko' ? '숲 순찰대' : 'Forest Patrol'));
     let y = wrapL(L === 'ko' ? '앱을 꺼 둬도 순찰대가 골드와 조각을 모아 와요. 최대 12시간, 하루 2번 받을 수 있어요. 최고 클리어 단계가 높을수록 많이 모아요.' : 'Your patrol gathers gold and fragments while you are away. Up to 12h, claim twice a day. Higher best stage = more loot.', 28, 120, W - 70, 13, '#fff6dc', 20, 700);
     txt((L === 'ko' ? '쌓인 시간 ' : 'Stored ') + Math.floor(h) + 'h ' + Math.floor((h % 1) * 60) + 'm / 12h', 28, y + 20, 15, '#ffd98a', null, 800); bar(28, y + 34, W - 70, 10, h / 12, '#7be04f');
@@ -2383,7 +2407,7 @@ function gearTap(p) { const u = gearU; GEAR_IDS().forEach((id, i) => { if (inR(G
   if (inR(G_EQ, p.x, p.y) && gearSel) { if (ES.eq[u] === gearSel) ECON.equip(ES, MS, u, null); else ECON.equip(ES, MS, u, gearSel); SAVEE(); sfx('tap'); } }
 // ---------- end screen: continue / x2 / reroll ----------
 const END_DBL = { x: 40, y: 604, w: 180, h: 44 }, END_RR = { x: 230, y: 604, w: 180, h: 44 }, END_CONT = { x: 75, y: 420, w: 300, h: 60 }, END_GIVE = { x: 75, y: 492, w: 300, h: 48 };
-const canRevive = () => ES && g && g.result && !g.result.win && !isDaily && !g.endless && !g._revived && !g._gaveUp && ECON.adLeft(ES, 'revive') > 0;
+const canRevive = () => ES && g && g.result && !g.result.win && !isDaily && !g.endless && !g.bc && !g._revived && !g._gaveUp && ECON.adLeft(ES, 'revive') > 0;
 function drawEndExtras() { if (!ES || !g._rew || isDaily) return; const R2 = g._rew; if (g._mult > 1) txt('×' + g._mult, W - 50, 428, 16, '#ff8a7a', 'c', 800, 3);
   btn(END_DBL, g._dbl ? '✔ ×2' : et('double') + ' ' + ECON.adLeft(ES, 'double'), !g._dbl && ECON.adLeft(ES, 'double') > 0, '#3f8fd0', 11);
   const bi = (R2.boss || []).findIndex(b => !b.keys && !b.rr); btn(END_RR, (R2.boss || []).some(b => b.rr) ? '✔ ' + et('reroll').split(' (')[0] : et('reroll') + ' ' + ECON.adLeft(ES, 'reroll'), bi >= 0 && ECON.adLeft(ES, 'reroll') > 0, '#8e44ad', 10); }
@@ -2534,8 +2558,9 @@ function drawBattleTab2() {
   { const si = ES ? ECON.sweepInfo(ES, Date.now()) : null; btn(B_SWEEP, '', !!(cleared && si && (si.left > 0 || si.ad > 0)), '#3d6fa8', 12); txt('⚡' + (ko ? '소탕' : 'Sweep'), B_SWEEP.x + B_SWEEP.w / 2, B_SWEEP.y + 24, ko ? 15 : 13, '#fff', 'c', 900, 3); txt(si ? (si.left + '/' + si.max + (si.ad > 0 && si.left === 0 ? ' ' + (PLAY ? '🎁' : '📺') : '')) : '-', B_SWEEP.x + B_SWEEP.w / 2, B_SWEEP.y + 46, 11, '#e0f0ff', 'c', 800, 2); }
   drawBattleExtras2();
   // daily + endless cards
-  { const open = !MS || !ES || ECON.infUnlocked(MS); btn(B_DAILY, '', true, '#6d8f3e', 14); txt('📅 ' + lt('daily2'), B_DAILY.x + B_DAILY.w / 2, B_DAILY.y + 18, 14, '#fff', 'c', 900, 3); txt(lt('dailySub'), B_DAILY.x + B_DAILY.w / 2, B_DAILY.y + 38, 10, '#e8f5d0', 'c', 700, 2);
-    btn(B_INF, '', open, '#3d6fa8', 14); txt((open ? '♾ ' : '🔒 ') + (ko ? '무한 모드' : 'Endless'), B_INF.x + B_INF.w / 2, B_INF.y + 18, 14, '#fff', 'c', 900, 3);
+  { const open = !MS || !ES || ECON.infUnlocked(MS); btn(B_DAILY, '', true, '#6d8f3e', 14); txt('📅 ' + lt('daily2'), B_DAILY.x + B_DAILY.w / 2, B_DAILY.y + 18, 13, '#fff', 'c', 900, 3); txt(lt('dailySub'), B_DAILY.x + B_DAILY.w / 2, B_DAILY.y + 38, 10, '#e8f5d0', 'c', 700, 2);
+    drawBCBtn26();
+    btn(B_INF, '', open, '#3d6fa8', 14); txt((open ? '♾ ' : '🔒 ') + (ko ? '무한 모드' : 'Endless'), B_INF.x + B_INF.w / 2, B_INF.y + 18, 13, '#fff', 'c', 900, 3);
     txt(open ? (ko ? '최고 ' : 'Best ') + (ES ? ES.infBest : 0) + ' · ' + (ko ? '보상 ' : 'rewards ') + (ES ? ECON.infLeft(ES) : 0) + '/' + ECON.INF_RUNS : (ko ? '3-10 클리어 후 열림' : 'Clear 3-10 to unlock'), B_INF.x + B_INF.w / 2, B_INF.y + 38, 10, '#e0ecff', 'c', 700, 2); }
   seedLabel = dailySeed().split('|')[1]; txt(t('daily') + ' ' + seedLabel + ' · ' + t('best') + ' ' + getBest() + ' · ' + lt('local'), W / 2, 682, 10, 'rgba(255,246,220,.75)', 'c', 600, 2);
 }
@@ -2582,7 +2607,7 @@ sweepRecover();
 
 function drawWaveBar() { rr(12, 606, W - 24, 42, 14); cx.fillStyle = 'rgba(40,24,10,.78)'; cx.fill(); cx.strokeStyle = 'rgba(255,217,138,.45)'; cx.lineWidth = 2; cx.stroke();
   const wn = Math.min(CFG.maxWave, Math.max(1, g.wave)), Wv = (g.WV || WAVES)[wn], live = g.enemies.filter(e => !e.dead).length + g.queue.length, bossW = !!(Wv && Wv[2]) || g.endless && g.wave % 5 === 0;
-  txt((g.endless ? '♾ ' : '') + t('wave') + ' ' + (g.endless ? g.wave : wn + '/' + CFG.maxWave), 30, 627, 15, '#ffe2a8', null, 800, 3); txt(t('left') + ' ' + live, W / 2, 627, 15, '#fff6dc', 'c', 800, 3);
+  txt((g.endless ? '♾ ' : '') + t('wave') + ' ' + (g.endless ? g.wave : wn + '/' + (g.bc ? FG.BC.wave : CFG.maxWave)), 30, 627, 15, '#ffe2a8', null, 800, 3); txt(t('left') + ' ' + live, W / 2, 627, 15, '#fff6dc', 'c', 800, 3);
   if (bossW) txt('⚠ BOSS', W - 30, 627, 14, '#ff8a7a', 'r', 900, 3); else if (g.rushW) txt('⚡ RUSH', W - 30, 627, 14, '#ffb36a', 'r', 900, 3); }
 
 const BAR_BTN = { x: 12, y: 726, w: 276, h: 64 };
@@ -2751,5 +2776,30 @@ function cntDraw24() { if (!cBan || screen !== 'game') return; const e = clock -
   rr(-170, -42, 340, 84, 20); cx.fillStyle = 'rgba(40,24,10,.88)'; cx.fill(); cx.strokeStyle = '#ffd84d'; cx.lineWidth = 4; cx.stroke();
   txt(ko ? '✨ 파훼 성공!' : '✨ COUNTERED!', 0, -12, 30, '#ffe066', 'c', 900, 5); txt(CB_TXT[ko ? 'ko' : 'en'][cBan.k], 0, 22, 15, '#fff6dc', 'c', 800, 3); cx.restore(); }
 { const dt0 = drawTut; drawTut = function () { try { cntScan24(); cntDraw24(); } catch (e) {} return dt0.apply(this, arguments); }; }
+
+// ---------- v0.26: daily boss challenge UI ----------
+function bcDayNum26() { const d = new Date(); return Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 864e5); }
+function bcOpen26() { return !MS || (MS.maxClear | 0) >= 10; }
+function drawBCBtn26() { const ko = L === 'ko', open = bcOpen26(), I = ES ? ECON.bcInfo(ES) : { left: 0, max: 0 }; btn(B_BC, '', open, '#a0452e', 14);
+  txt((open ? '👑 ' : '🔒 ') + (ko ? '오늘의 보스' : 'Daily Boss'), B_BC.x + B_BC.w / 2, B_BC.y + 18, 13, '#fff', 'c', 900, 3);
+  txt(open ? (ko ? '남은 ' : 'Left ') + I.left + '/' + I.max + (I.tier ? ' · ★' + I.tier : '') : (ko ? '1-10 클리어 후' : 'Clear 1-10'), B_BC.x + B_BC.w / 2, B_BC.y + 38, 10, '#ffe2d6', 'c', 700, 2); }
+function bcStartRun26() { const d = bcDayNum26(), bc = FG.bcToday(d); let meta = Object.assign(META.battleMeta(MS), { gear: ECON.gearMeta(ES, MS), bc, stage: Math.max(1, Math.min(50, MS.maxClear | 0)) }); isDaily = false; bossIntro = null; bossIntroN = 0; g = new Game('forest-v' + VERSION + '|bc-' + d, meta); g._rew = null; seedLabel = 'bc-' + d; screen = 'game'; drag = null; tip = null; selA = null; endShown = 0; pops = []; say(L === 'ko' ? '👑 5웨이브에 오늘의 보스! 60초 동안 최대한 깎아요' : '👑 Today\'s boss at wave 5 — deal max damage in 60s', 4); sfx('go'); }
+function bcTap26() { const ko = L === 'ko'; sfx('tap'); if (!MS || !ES) return; if (!bcOpen26()) { lobbyMsg = { msg: ko ? '1-10을 깨면 오늘의 보스가 열려요' : 'Clear 1-10 to unlock the Daily Boss', life: 1.8 }; return; }
+  ECON.tick(ES, MS, Date.now()); const I = ECON.bcInfo(ES);
+  if (I.left > 0) { ECON.bcStart(ES); SAVEE(); bcStartRun26(); return; }
+  if (I.ad > 0) { if (ECON.bcAd(ES) && ECON.bcStart(ES)) { SAVEE(); bcStartRun26(); } return; }
+  lobbyMsg = { msg: ko ? '오늘 도전 끝! 내일 다시 와요' : 'No attempts left today', life: 1.8 }; }
+// HUD during the boss: time left + damage multiple + tier
+{ const dwb0 = drawWaveBar; drawWaveBar = function () { const r = dwb0.apply(this, arguments); try { if (g && g.bc && g.bcB && g.phase === 'combat') { const ko = L === 'ko', b = g.bcB, left = Math.max(0, FG.BC.time - (g.t - g.bcT0)), rr0 = g.bcScore() / b.max * (FG.BC.adj[b.k] || 1), T = FG.bcTier(rr0), nx = FG.BC.tiers[T];
+  rr(70, 92, 310, 44, 12); cx.fillStyle = 'rgba(60,18,10,.85)'; cx.fill(); cx.strokeStyle = '#ffb36b'; cx.lineWidth = 2; cx.stroke();
+  txt('👑 ' + (ko ? '남은 ' : '') + left.toFixed(0) + (ko ? '초' : 's left') + '   ' + (ko ? '피해 ×' : 'DMG ×') + rr0.toFixed(2) + '   ★' + T, W / 2, 107, 14, '#fff3dc', 'c', 900, 3);
+  txt(nx ? (ko ? '다음 ★' + (T + 1) + ': ×' + nx[0] : 'Next ★' + (T + 1) + ': ×' + nx[0]) : (ko ? '최고 등급!' : 'Max tier!'), W / 2, 126, 11, '#ffd0a0', 'c', 800, 2); } } catch (e) {} return r; }; }
+// end screen card
+{ const de0 = drawEnd; drawEnd = function (dt) { const r = de0.apply(this, arguments); try { if (g && g.bc && g.result && endShown > .3) { const ko = L === 'ko', R = g.bcR || { score: 0, r: 0, tier: 0 }, B = g._bcRes || {}, I = ES ? ECON.bcInfo(ES) : {};
+  rr(30, 330, W - 60, 120, 16); cx.fillStyle = 'rgba(60,18,10,.95)'; cx.fill(); cx.strokeStyle = '#ffb36b'; cx.lineWidth = 3; cx.stroke();
+  txt('👑 ' + (ko ? '오늘의 보스: ' : 'Daily Boss: ') + (T[L].names[g.bc.k] || g.bc.k) + (g.bcR ? '' : (ko ? ' (도달 못 함)' : ' (not reached)')), W / 2, 352, 15, '#fff3dc', 'c', 900, 3);
+  txt((ko ? '피해 ' : 'Damage ') + Math.round(R.score).toLocaleString() + '  ·  ×' + (R.r || 0).toFixed(2) + '  ·  ★' + (R.tier | 0) + (ko ? '  (오늘 최고 ★' : '  (today best ★') + (I.tier | 0) + ')', W / 2, 378, 13, '#ffe2c0', 'c', 800, 2);
+  txt((B.ivt || B.dia) ? (ko ? '보상: ' : 'Reward: ') + (B.ivt ? '🎟 +' + B.ivt + '  ' : '') + (B.dia ? '💎 +' + B.dia : '') : (ko ? '보상: 오늘 이미 받은 등급 이하' : 'Reward: tier already claimed today'), W / 2, 404, 13, '#9cff6a', 'c', 800, 2);
+  txt((ko ? '남은 도전 ' : 'Attempts left ') + (I.left | 0) + '/' + (I.max | 0) + '  ·  ' + FG.BC.tiers.map((x, i) => '★' + (i + 1) + ' ×' + x[0]).join(' '), W / 2, 430, 11, '#d9c7a6', 'c', 700, 2); } } catch (e) {} return r; }; }
 })();
 </script></body></html>
