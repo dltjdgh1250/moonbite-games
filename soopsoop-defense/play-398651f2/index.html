@@ -176,7 +176,7 @@
 </script><script>// Forest Guardians — auto-battle defense simulation (deterministic, no DOM). v0.3 prototype (8 waves)
 (function (root) {
 'use strict';
-const VERSION = '0.27.1';
+const VERSION = '0.27.2';
 // ---------- PRNG: PCG32 ----------
 const M64 = (1n << 64n) - 1n, MUL = 6364136223846793005n;
 function PCG(seed, seq) { this.inc = ((BigInt(seq >>> 0) << 1n) | 1n) & M64; this.s = 0n; this.u32(); this.s = (this.s + BigInt(seed >>> 0) + (BigInt(seed >>> 0) << 32n)) & M64; this.u32(); }
@@ -1392,7 +1392,7 @@ const TRASH = { x: 12, y: 664, w: 90, h: 62 };
 const BTN_SCAN = { x: 12, y: 734, w: 112, h: 54 }, BTN_DEL = { x: 132, y: 734, w: 156, h: 54 }, BTN_START = { x: 296, y: 734, w: 142, h: 54 };
 const BTN_MYTH = { x: 10, y: 64, w: 96, h: 36 }, BTN_BOX = { x: 112, y: 64, w: 136, h: 36 }, MY_ROW = i => ({ x: 8, y: 126 + i * 90, w: 434, h: 84 }), MY_BTN = i => ({ x: 340, y: 148 + i * 90, w: 96, h: 40 }), MY_X = { x: 392, y: 70, w: 46, h: 40 };
 let mythOpen = false, bossMsg = null;
-const BTN_LANG = { x: 10, y: 8, w: 72, h: 28 }, BTN_SND = { x: 322, y: 8, w: 52, h: 28 }, BTN_SPD = { x: 382, y: 8, w: 58, h: 28 };
+const BTN_LANG = { x: 10, y: 8, w: 72, h: 28 }, BTN_SND = { x: 322, y: 8, w: 52, h: 28 }, BTN_SPD = { x: 382, y: 8, w: 58, h: 28 }; const BTN_AUTO = { x: 262, y: 8, w: 54, h: 28 }; // v0.27.2 in-game auto next wave toggle
 const cellRect = i => { const p = g.cellPos(i), X = SX(p.x, p.y), Y = SY(p.x, p.y); return { x: X - 22, y: Y - 26, w: 44, h: 54, cx: X, cy: Y }; };
 const inR = (r, x, y) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
 
@@ -1643,7 +1643,7 @@ function draw(dt) {
   if (g.phase === 'combat' && g.core > 0 && g.core <= (g.coreMax || CFG.coreHp) * 0.3) { const a = .25 + .2 * Math.sin(clock * 7); if (!GLC.vig) { const c = GLC.vig = document.createElement('canvas'); c.width = W / 4; c.height = H / 4; const q = c.getContext('2d'), gg = q.createRadialGradient(W / 8, H / 8, Math.min(W, H) * .35 / 4, W / 8, H / 8, Math.max(W, H) * .75 / 4); gg.addColorStop(0, 'rgba(255,0,0,0)'); gg.addColorStop(1, 'rgba(220,20,20,1)'); q.fillStyle = gg; q.fillRect(0, 0, c.width, c.height); } const ga = cx.globalAlpha; cx.globalAlpha = ga * a; cx.drawImage(GLC.vig, 0, 0, W, H); cx.globalAlpha = ga; }
   // HUD
   const hud = cx.createLinearGradient(0, 0, 0, FY0); hud.addColorStop(0, '#3f6b2a'); hud.addColorStop(1, '#2f5420'); cx.fillStyle = hud; cx.fillRect(0, 0, W, FY0);
-  btn(BTN_LANG, 'II', true, '#6d8f3e', 14); btn(BTN_SND, muted ? '🔇' : '🔊', true, '#6d8f3e', 13); if (speed > 1 && ES && !ECON.speedOk(ES, Date.now())) speed = 1; btn(BTN_SPD, speed > 1 ? speed + 'x' : (ES && !ECON.speedOk(ES, Date.now()) ? (PLAY ? '🎁2x' : '📺2x') : '1x'), true, speed > 1 ? '#f08a24' : '#6d8f3e', speed > 1 || !ES || ECON.speedOk(ES, Date.now()) ? 14 : 11);
+  btn(BTN_LANG, 'II', true, '#6d8f3e', 14); btn(BTN_SND, muted ? '🔇' : '🔊', true, '#6d8f3e', 13); btn(BTN_AUTO, (autoStartOn ? '▶' : '') + (L === 'ko' ? '자동' : 'AUTO'), true, autoStartOn ? '#3f8fd0' : '#6d8f3e', autoStartOn ? 12 : 13); if (speed > 1 && ES && !ECON.speedOk(ES, Date.now())) speed = 1; btn(BTN_SPD, speed > 1 ? speed + 'x' : (ES && !ECON.speedOk(ES, Date.now()) ? (PLAY ? '🎁2x' : '📺2x') : '1x'), true, speed > 1 ? '#f08a24' : '#6d8f3e', speed > 1 || !ES || ECON.speedOk(ES, Date.now()) ? 14 : 11);
   txt(g.endless ? '♾ ' + t('wave') + ' ' + (g.wave + (prep ? 1 : 0)) : t('wave') + ' ' + Math.min(g.bc ? FG.BC.wave : CFG.maxWave, g.wave + (prep ? 1 : 0)) + '/' + (g.bc ? FG.BC.wave : CFG.maxWave), 200, 22, 17, '#fff', 'c', 800, 4);
   txt('🌰 ' + g.gold, 14, 46, 16, '#ffe9a8', null, 800, 3);
   txt(t('core'), 214, 46, 12, '#e8f5d0', 'r', 800, 3); rr(220, 39, 160, 14, 7); cx.fillStyle = 'rgba(0,0,0,.35)'; cx.fill(); rr(220, 39, 160 * Math.min(1, g.core / (g.coreMax || CFG.coreHp)), 14, 7); cx.fillStyle = g.core > (g.coreMax || CFG.coreHp) * 0.3 ? '#8be05a' : '#ff6b5a'; cx.fill(); txt(String(g.core), 388, 46, 14, '#fff', null, 800, 3);
@@ -2128,6 +2128,7 @@ cv.addEventListener('pointerdown', ev => {
   if (screen === 'title') { if (tut && tut.lobby) { const want = TAB_R(tut.step === 9 ? 0 : 2); if (inR(want, p.x, p.y)) { if (tut.step === 9) tut.step = 10; else tutFinish(); } } lobbyTap(p); return; }
   if (g.phase === 'over') { if (canRevive()) { reviveTap(p); return; } if (endShown > .4) { if (endExtrasTap(p)) return; if (inR(END_AGAIN, p.x, p.y)) { if (g.bc) { screen = 'title'; tab = 1; bcTap26(); return; } if (g.endless) { if (!tryStart(false, true)) { screen = 'title'; tab = 1; } } else { const nx = endNext(); if (nx) { MS.stage = nx; SAVEM(); } if (!tryStart(isDaily)) { screen = 'title'; tab = 1; } } } else if (inR(END_HOME, p.x, p.y)) { const lu = lvupHint24(); screen = 'title'; tab = 1; if (tut && !tut.lobby) tut = { step: 9, t: 0, lobby: 1 }; if (lu) { tab = 0; selU = lu.k; if (tut && tut.lobby && tut.step === 9) tut.step = 10; } }; } return; }
   if (inR(BTN_SPD, p.x, p.y)) { if (speed > 1 || !ES || ECON.speedOk(ES, Date.now())) speed = speed === 1 ? 2 : 1; else if (ECON.adSimple(ES, MS, 'speed', Date.now())) { SAVEE(); speed = 2; say('⏩ 2× 15:00 ' + (ES.adfree ? '' : '(' + et('test') + (PLAY ? ')' : ' 📺)')), 1.6); } else say('0 ' + et('left'), 1.2); sfx('tap'); return; }
+  if (screen === 'game' && inR(BTN_AUTO, p.x, p.y)) { autoStartOn = !autoStartOn; lsSet('fg-autostart', autoStartOn ? '1' : '0'); asT = 3; asWait = 0; say(autoStartOn ? (L === 'ko' ? '▶ 자동 진행 켬 · 3초 뒤 다음 웨이브' : '▶ AUTO ON · next wave in 3s') : (L === 'ko' ? '자동 진행 끔' : 'AUTO OFF'), .9); sfx('tap'); return; }
   if (inR(BTN_SND, p.x, p.y)) { muted = !muted; try { localStorage.setItem('fg-mute', muted ? '1' : '0'); } catch (e) {} return; }
   if (tut && !tut.lobby && !tutAllow(p)) return;
   if (screen === 'game' && g.phase === 'bless') { blessTap(p); return; }
@@ -2626,10 +2627,13 @@ let sweepFx = null;
 // ---------- v0.15: auto start next wave (real time, 3 s; pauses on any prep interaction / modal) ----------
 let autoStartOn = lsGet('fg-autostart', '1') === '1', asT = 3, asWait = 0, asLastIn = 0;
 function autoBlocked() { return !autoStartOn || !g || screen !== 'game' || g.phase !== 'prep' || g.wave < 1 || !!tut || pauseMenu || !!drag || mythOpen || !!g.offer || !!tip || !!bossIntro || document.hidden || aim; }
-function autoStartFrame(dt) { if (autoBlocked()) { asT = 3; asWait = Math.max(asWait, g && g.phase === 'prep' ? 0 : 0); if (g && g.phase === 'prep' && (drag || mythOpen || g.offer || tip || pauseMenu)) asWait = 2; return; }
-  if (asWait > 0) { asWait -= dt; return; } if (performance.now() - asLastIn < 500) return; asT -= dt; if (asT <= 0) { asT = 3; tip = null; if (g.startWave()) sfx('go'); } }
-function asInput() { asLastIn = performance.now(); if (g && g.phase === 'prep') { asWait = 2; asT = 3; } }
-cv.addEventListener('pointerdown', asInput, { capture: true });
+// v0.27.2: taps no longer reset the countdown; any blocking state (drag, mythic, offer, tip, pause...) holds it at 3 s and it restarts from 3 s once cleared
+// a completed board action (place / move / merge / recruit / sell / mythic) also restarts the 3 s count; plain taps do not
+let asSig = '';
+function asBoardSig() { const f = u => u ? u.k + u.star : '-'; return g.board.map(f).join(',') + '|' + g.bench.map(f).join(',') + '|' + g.gold + '|' + (g.boxes | 0); }
+function autoStartFrame(dt) { if (autoBlocked()) { asT = 3; asWait = 0; asSig = ''; return; }
+  const sg = asBoardSig(); if (sg !== asSig) { if (asSig) asT = 3; asSig = sg; }
+  if (asWait > 0) { asWait -= dt; return; } asT -= dt; if (asT <= 0) { asT = 3; tip = null; if (g.startWave()) sfx('go'); } }
 document.addEventListener('visibilitychange', () => { asWait = 2; asT = 3; });
 
 sweepRecover();
@@ -2813,6 +2817,7 @@ function drawBCBtn26() { const ko = L === 'ko', open = bcOpen26(), I = ES ? ECON
   txt((open ? '👑 ' : '🔒 ') + (ko ? '오늘의 보스' : 'Daily Boss'), B_BC.x + B_BC.w / 2, B_BC.y + 18, 13, '#fff', 'c', 900, 3);
   txt(open ? (ko ? '남은 ' : 'Left ') + I.left + '/' + I.max + (I.tier ? ' · ★' + I.tier : '') : (ko ? '1-10 클리어 후' : 'Clear 1-10'), B_BC.x + B_BC.w / 2, B_BC.y + 38, 10, '#ffe2d6', 'c', 700, 2); }
 function bcStartRun26() { const d = bcDayNum26(), bc = FG.bcToday(d); let meta = Object.assign(META.battleMeta(MS), { gear: ECON.gearMeta(ES, MS), bc, stage: Math.max(1, Math.min(50, MS.maxClear | 0)) }); isDaily = false; bossIntro = null; bossIntroN = 0; g = new Game('forest-v' + VERSION + '|bc-' + d, meta); g._rew = null; seedLabel = 'bc-' + d; screen = 'game'; drag = null; tip = null; selA = null; endShown = 0; pops = []; say(L === 'ko' ? '👑 5웨이브에 오늘의 보스! 60초 동안 최대한 깎아요' : '👑 Today\'s boss at wave 5 — deal max damage in 60s', 4); sfx('go'); }
+window.__fg.bcStart = () => bcStartRun26(); // test hook
 function bcTap26() { const ko = L === 'ko'; sfx('tap'); if (!MS || !ES) return; if (!bcOpen26()) { lobbyMsg = { msg: ko ? '1-10을 깨면 오늘의 보스가 열려요' : 'Clear 1-10 to unlock the Daily Boss', life: 1.8 }; return; }
   ECON.tick(ES, MS, Date.now()); const I = ECON.bcInfo(ES);
   if (I.left > 0) { ECON.bcStart(ES); SAVEE(); bcStartRun26(); return; }
