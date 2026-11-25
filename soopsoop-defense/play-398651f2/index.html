@@ -176,7 +176,7 @@
 </script><script>// Forest Guardians — auto-battle defense simulation (deterministic, no DOM). v0.3 prototype (8 waves)
 (function (root) {
 'use strict';
-const VERSION = '0.29.1';
+const VERSION = '0.29.2';
 // ---------- PRNG: PCG32 ----------
 const M64 = (1n << 64n) - 1n, MUL = 6364136223846793005n;
 function PCG(seed, seq) { this.inc = ((BigInt(seq >>> 0) << 1n) | 1n) & M64; this.s = 0n; this.u32(); this.s = (this.s + BigInt(seed >>> 0) + (BigInt(seed >>> 0) << 32n)) & M64; this.u32(); }
@@ -311,6 +311,8 @@ const G = Game.prototype;
 G.cellPos = function (i) { return { x: CFG.colX[i % CFG.cols], y: CFG.rowY[(i / CFG.cols) | 0] }; };
 G.L = function (k) { return this.meta.lv[k] || 1; };
 G.scanMax = function () { return (CFG.scanPerWave + (this.meta.rel.lamp >= 12 ? 1 : 0)) * (this.w10 ? 2 : 1); };
+// v0.29.2: v0.29 runs use more, weaker mobs (CFG.mob29) so the field stays full; total HP per wave is unchanged (hp / mob)
+G.mobK = function () { return (this.isV29 && this.isV29() && CFG.mob29) || CFG.mob || 1; };
 G.R = function (k) { return (this.meta.rel[k] || 0) * (this.relK ? this.relK() : 1); }; // v0.29: relic effect strength x CFG.rel29 in v0.29 runs (level thresholds use raw levels)
 G.deliverCost = function () { if (this.freeDeliv > 0) return 0; return Math.round((!this.w10 ? CFG.deliverCost(this.delivN) : 20 + CFG.delivStep10 * this.delivN) * (1 - 0.01 * this.meta.rel.string)); };
 G.canScan = function () { return this.phase === 'prep' && !this.offer && this.scanUsed < this.scanMax(); };
@@ -377,12 +379,12 @@ G.startWave = function () {
   if (this.phase !== 'prep' || this.offer) return false;
   this.wave++; this.phase = 'combat'; this.t = 0; this.scanArmed = false;
   const [hm, list, boss] = this.endless ? endlessWave(this.wave) : this.WV[this.wave]; this.curHm = hm; this.eAtkW = this.endless ? 1 + Math.min(INF.atkMax, INF.atkW * Math.max(0, this.wave - 20)) : 1; if (this.tutRun && this.wave <= 2) this.eAtkW *= 0.4; // v0.24 first-ever run: gentler first two waves
-  const types = []; const MOB = CFG.mob || 1; this.mobW = MOB; const wk = (this.tutRun && this.wave <= 2 ? 0.55 : 1) * (this.wave === 1 ? CFG.w1Mob : this.wave === 2 ? (this.meta.stage > 20 && this.meta.stage <= 30 ? CFG.w2MobHi : CFG.w2Mob) : 1); for (const [k, n0] of list) { const n = Math.max(1, Math.round(n0 * MOB * wk)); for (let i = 0; i < n; i++) types.push(CFG.oldRes && k === 'bat' ? 'mole' : k); }
+  const types = []; const MOB = this.mobK(); this.mobW = MOB; const wk = (this.tutRun && this.wave <= 2 ? 0.55 : 1) * (this.wave === 1 ? CFG.w1Mob : this.wave === 2 ? (this.meta.stage > 20 && this.meta.stage <= 30 ? CFG.w2MobHi : CFG.w2Mob) : 1); for (const [k, n0] of list) { const n = Math.max(1, Math.round(n0 * MOB * wk)); for (let i = 0; i < n; i++) types.push(CFG.oldRes && k === 'bat' ? 'mole' : k); }
   // deterministic shuffle by spawn stream
   for (let i = types.length - 1; i > 0; i--) { const j = this.rS.int(i + 1); [types[i], types[j]] = [types[j], types[i]]; }
-  const rushW = this.endless ? CFG.rush !== false && this.wave % 5 === 3 : !!(this.WV[this.wave] && this.WV[this.wave][3]); this.rushW = rushW; const gap = (this.w10 ? (this.isV29 && this.isV29() && CFG.gap10_29 != null ? CFG.gap10_29 : CFG.gap10) : CFG.gap) * (rushW ? 0.5 : 1);
+  const rushW = this.endless ? CFG.rush !== false && this.wave % 5 === 3 : !!(this.WV[this.wave] && this.WV[this.wave][3]); this.rushW = rushW; const gap = (this.w10 ? (this.isV29 && this.isV29() && CFG.gap10_29 != null ? CFG.gap10_29 * gapChK(this) : CFG.gap10) : CFG.gap) * (rushW ? 0.5 : 1);
   if (rushW) this.fx.push({ t: 'rush', life: 1.6 });
-  this.queue = []; { let at = 0, i = 0; while (i < types.length) { const gs = MOB > 1 ? 3 + this.rS.int(3) : 1, zone = this.rS.int(3); for (let j = 0; j < gs && i < types.length; j++, i++) this.queue.push({ at: at + j * (MOB > 1 ? 0.14 : 0), k: types[i], hm, hpd: MOB, zone: MOB > 1 ? (zone + (j % 2 ? this.rS.int(2) : 0)) % 3 : zone }); at += gs * gap / MOB; } this.qEnd = at; }
+  this.queue = []; if (CFG.stream29 && this.isV29 && this.isV29()) { const r = streamQ(this, types, hm, MOB, gap, 0); this.queue = r.q; this.qEnd = r.end; } else { let at = 0, i = 0; while (i < types.length) { const gs = MOB > 1 ? 3 + this.rS.int(3) : 1, zone = this.rS.int(3); for (let j = 0; j < gs && i < types.length; j++, i++) this.queue.push({ at: at + j * (MOB > 1 ? 0.14 : 0), k: types[i], hm, hpd: MOB, zone: MOB > 1 ? (zone + (j % 2 ? this.rS.int(2) : 0)) % 3 : zone }); at += gs * gap / MOB; } this.qEnd = at; }
   if (boss) this.queue.push({ at: (this.qEnd || 0) + 1.5, k: this.bossKey(), hm: 1, hp: boss, zone: 1 });
   this.epools = []; this.tele = [];
   this.allies = []; this.shots = []; this.pools = [];
@@ -400,7 +402,7 @@ G.spawn = function (q) {
   if (d.boss && d.mid) { const hk = (this.endless ? 0.75 : 1) * CFG.midHp; e.hp = e.max = Math.round(e.max * hk); e.atk *= CFG.midAtk; }
   if (d.boss) { e.full = this.endless ? this.wave > INF.hellAt || this.wave % 20 === 0 : this.wave === CFG.maxWave; e.pa = 2; e.pb = 5; e.pc = 5; this.fx.push({ t: 'bosswarn', life: 1.8, k: q.k, full: e.full }); }
   else if (q.sum) e.sum = 1;
-  else if (CFG.elite !== false && !this.endless && this.wave * (this.w10 ? 2 : 1) >= 6 && this.rS.f() < 0.08 / (CFG.mob || 1) || CFG.elite !== false && this.endless && this.wave >= 6 && this.rS.f() < 0.08 / (CFG.mob || 1)) { e.elite = 1; e.hp = e.max = Math.round(e.max * 2.2); e.atk *= 1.3; }
+  else if (CFG.elite !== false && !this.endless && this.wave * (this.w10 ? 2 : 1) >= 6 && this.rS.f() < 0.08 / this.mobK() || CFG.elite !== false && this.endless && this.wave >= 6 && this.rS.f() < 0.08 / (CFG.mob || 1)) { e.elite = 1; e.hp = e.max = Math.round(e.max * 2.2); e.atk *= 1.3; }
 };
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const DOTS = [['burn', 'm'], ['psn', 'm'], ['bld', 'p']];
@@ -891,7 +893,7 @@ G.wallHit = function (e) { if (!e.atWall) { e.atWall = 1; this.stats.leaks++; th
   e.moving = 0; e.face = 1; if (e.cd > 0) return; e.cd = 1 / (e.aps || 0.8); e.anim = 0.18;
   const v = e.boss ? (CFG.wallBossC ? CFG.wallBossC[Math.min(4, stageMul(this.meta.stage).d)] : CFG.wallBoss) : CFG.wallMob * (e.elite ? 2 : 1); this.core -= v; this.stats.wallDmg = (this.stats.wallDmg || 0) + v; this.fx.push({ t: 'wallHit', x: e.x, y: e.y, big: e.boss ? 1 : 0, life: 0.3 }); };
 // v0.19: wall tower — fixed crossbow on the castle wall, not a unit, enemies never target it
-G.towerDmg = function () { const mob = CFG.mob || 1, w1 = this.endless ? endlessWave(1) : this.WV[1], hpMole = ENEMIES.mole.hp * (w1 ? w1[0] : 1) / (mob > 1 ? mob * (CFG.mobHpK || 1) : 1) * CFG.eHp * (this.endless ? CFG.infHpK : 1) * stageMul(this.meta.stage).hp; return Math.ceil(hpMole * CFG.towerPct) * (1 + 0.08 * this.R('tower')); };
+G.towerDmg = function () { const mob = this.mobK(), w1 = this.endless ? endlessWave(1) : this.WV[1], hpMole = ENEMIES.mole.hp * (w1 ? w1[0] : 1) / (mob > 1 ? mob * (CFG.mobHpK || 1) : 1) * CFG.eHp * (this.endless ? CFG.infHpK : 1) * stageMul(this.meta.stage).hp; return Math.ceil(hpMole * CFG.towerPct) * (1 + 0.08 * this.R('tower')); };
 G.towerStep = function (dt) { if (!CFG.towerOn) return; this.towerCd = (this.towerCd || 0) - dt; if (this.towerCd > 0) return; let best = null, bv = -1e9;
   for (const e of this.enemies) { if (e.dead || e.untarget || e.totem || e.y < CORE_Y - CFG.towerR) continue; const v = (e.atWall ? 1e6 : 0) + e.y - e.id * 1e-6; if (v > bv) { bv = v; best = e; } }
   if (!best) { this.towerCd = 0; return; } this.towerCd = 1 / (CFG.towerAps * (1 + 0.05 * this.R('towerspd'))); const d = this.hurt(best, this.towerDmg(), null, 'p'); this.stats.towerDmg = (this.stats.towerDmg || 0) + (d || 0); this.stats.towerN = (this.stats.towerN || 0) + 1; this.fx.push({ t: 'towerShot', x: best.x, y: best.y, life: 0.25 }); };
@@ -987,7 +989,7 @@ const FAMS = ['p', 'm', 's', 't'];
 Object.assign(CFG, { v29: true, sumBase: 10, sumStep: 1, sumMax: 50, killGold: 5, eliteGold: 6, midGold: 30, bossGold: 60, clearGold: w => 15 + 2 * w,
   famMax: 20, famCost: L => Math.round(25 * (L + 1) * Math.pow(1.08, L)), famAtk: 0.035, famHeal: 0.035, famHp: 0.04,
   acornElite: 1, acornMid: 2, acornBoss: 3, gambleOdds: [0.45, 0.30, 0.10, 0.15], gambleFail: 10, sellT: [8, 16, 32, 64], sellS: [0, 1, 2.5, 6], sellCap: 0.6,
-  rel29: 1, autoPlace29: true, bossPrep29: 8, recallLock: 5, halfGap: 2, combatMax29: 80, hp29: [0.85, 2.4, 1.85, 1.85, 0.58], atk29: [1, 1, 1, 1, 2.1], bossChip: 6, bossChipMid: 4, hp29t: -0.2, passGold: 2, passBoss29: 2, atk29t: 0.05, bossHp29late: 1, bossHp29: [0.45, 1, 1, 1, 1], gap10_29: 1.4, potKill: true }); // v0.29.1 calibrated 2026-11-25 on the HUMAN-speed bot (tools/sweep291.sh): ch1 >= 90%, others within +-5 of v0.28; stages 46-50: HP +20%/stage, attack -5%/stage
+  stream29: true, mob29: 1.5, rel29: 1, autoPlace29: true, bossPrep29: 0, recallLock: 5, halfGap: 2, combatMax29: 80, hp29: [0.85, 1.44, 1.2, 1.34, 0.7], atk29: [1, 1, 1, 1, 2.1], bossChip: 6, bossChipMid: 4, hp29t: -0.18, passGold: 2, passBoss29: 2, atk29t: 0.12, bossHp29late: 1, bossHp29: [0.45, 1, 1, 1, 1], gap10_29: 0.8, gap29c: [1, 1, 1, 1, 1], potKill: true }); // v0.29.1 calibrated 2026-11-25 on the HUMAN-speed bot (tools/sweep291.sh): ch1 >= 90%, others within +-5 of v0.28; stages 46-50: HP +20%/stage, attack -5%/stage
 G.isV29 = function () { return !!(CFG.v29 && this.w10 && !this.bc && !this.endless && !this.tutRun); };
 G.relK = function () { return this.isV29() && CFG.rel29 != null ? CFG.rel29 : 1; };
 // v0.29 auto-place: a summoned unit goes straight onto the field (front/back row by role) when there is room; otherwise the bench
@@ -1067,7 +1069,14 @@ G.hurt29 = G.hurt; G.hurt = function (v, amt, src, ty) { const h0 = v && v.boss 
 G.halfQ = function (hm, list, at0) { const MOB = CFG.mob || 1, wk = this.wave === 1 ? CFG.w1Mob : this.wave === 2 ? (this.meta.stage > 20 && this.meta.stage <= 30 ? CFG.w2MobHi : CFG.w2Mob) : 1, types = [];
   for (const [k, n0] of list) { const n = Math.max(1, Math.round(n0 * MOB * (wk || 1))); for (let i = 0; i < n; i++) types.push(k); }
   for (let i = types.length - 1; i > 0; i--) { const j = this.rS.int(i + 1); [types[i], types[j]] = [types[j], types[i]]; }
-  const gap = (CFG.gap10_29 != null ? CFG.gap10_29 : CFG.gap10) * (this.rushW ? 0.5 : 1), q = []; let at = at0, i = 0; while (i < types.length) { const gs = MOB > 1 ? 3 + this.rS.int(3) : 1, zone = this.rS.int(3); for (let j = 0; j < gs && i < types.length; j++, i++) q.push({ at: at + j * (MOB > 1 ? 0.14 : 0), k: types[i], hm, hpd: MOB, zone: MOB > 1 ? (zone + (j % 2 ? this.rS.int(2) : 0)) % 3 : zone }); at += gs * gap / MOB; } return { q, end: at }; };
+  const gap = (CFG.gap10_29 != null ? CFG.gap10_29 * gapChK(this) : CFG.gap10) * (this.rushW ? 0.5 : 1), q = []; let at = at0, i = 0; while (i < types.length) { const gs = MOB > 1 ? 3 + this.rS.int(3) : 1, zone = this.rS.int(3); for (let j = 0; j < gs && i < types.length; j++, i++) q.push({ at: at + j * (MOB > 1 ? 0.14 : 0), k: types[i], hm, hpd: MOB, zone: MOB > 1 ? (zone + (j % 2 ? this.rS.int(2) : 0)) % 3 : zone }); at += gs * gap / MOB; } return { q, end: at }; };
+// v0.29.2: a steady stream inside each wave — one mob at a time at even spacing (same count and total time as the old clumps of 3-5)
+function gapChK(g) { /* v0.29.2: per-chapter spawn spacing (chapter 1 denser + weaker mobs so the field never looks empty) */ const a = CFG.gap29c; if (!Array.isArray(a) || !g || !g.meta) return 1; const d = Math.min(4, stageMul(g.meta.stage).d); return a[d] || 1; }
+function streamQ(g, types, hm, MOB, gap, at0) { const q = [], step = gap / MOB; let at = at0, z = g.rS.int(3); for (let i = 0; i < types.length; i++) { z = (z + 1 + g.rS.int(2)) % 3; q.push({ at, k: types[i], hm, hpd: MOB, zone: z }); at += step * (0.8 + 0.4 * g.rS.f()); } return { q, end: at }; }
+G.halfQ0 = G.halfQ; G.halfQ = function (hm, list, at0) { if (!CFG.stream29) return this.halfQ0(hm, list, at0); const MOB = this.mobK(), wk = this.wave === 1 ? CFG.w1Mob : this.wave === 2 ? (this.meta.stage > 20 && this.meta.stage <= 30 ? CFG.w2MobHi : CFG.w2Mob) : 1, types = [];
+  for (const [k, n0] of list) { const n = Math.max(1, Math.round(n0 * MOB * (wk || 1))); for (let i = 0; i < n; i++) types.push(k); }
+  for (let i = types.length - 1; i > 0; i--) { const j = this.rS.int(i + 1); [types[i], types[j]] = [types[j], types[i]]; }
+  return streamQ(this, types, hm, MOB, (CFG.gap10_29 != null ? CFG.gap10_29 * gapChK(this) : CFG.gap10) * (this.rushW ? 0.5 : 1), at0); };
 G.startWave29 = G.startWave; G.startWave = function () {
   if (this.isV29() && this.phase === 'prep' && this.offer && this.offerSrc === 'free') { const o = this.offer; this.offer = null; const r = this.startWave(); this.offer = o; return r; }
   const r = this.startWave29.apply(this, arguments); if (!r) return r;
@@ -1373,7 +1382,7 @@ function canAnything(m) { return UNITS.some(k => canLevel(m, k)) || FG.RELICS.so
 // each boss kill rolls once: key (by difficulty) / diamonds 1-3 (15%) / stones 1-3 (30%) / gold 20-60 x m. mult scales amounts (keys too), never roll counts/odds.
 // First clear of a stage: gold 50+10s + 5 fragments (x1). First codex entry +10 stones (x1).
 function stageOf(m, res) { return Math.max(1, Math.min(FG.MAX_STAGE, (res.stage | 0) || ((res.diff | 0) * 10 + 1))); }
-const REW = { k: +((typeof process !== 'undefined' && process.env && process.env.REWK) || 0.94), f: +((typeof process !== 'undefined' && process.env && process.env.REWF) || 0.8), fd: d => 10 + d, rk29: 2.8 }; // rk29: v0.29 runs ~10 min -> played-run rewards x2.8 (v0.29.1, tools/growth29.js: human-bot reward per minute vs v0.28 about -15..+12%, average -4%) (sweep keeps v0.28 absolute values, heart cost per run unchanged) so growth per hour of play stays within -15..0% of v0.28 // v0.15: f = cut on fragments/stones/diamonds (gold unchanged); fd(stage) = first-clear diamonds // run-reward scale (v0.13: boss diamonds, gold, fragments); first-clear rewards and key odds unchanged
+const REW = { k: +((typeof process !== 'undefined' && process.env && process.env.REWK) || 0.94), f: +((typeof process !== 'undefined' && process.env && process.env.REWF) || 0.8), fd: d => 10 + d, rk29: 2.2 }; // rk29: v0.29 runs ~10 min -> played-run rewards x2.8 (v0.29.1, tools/growth29.js: human-bot reward per minute vs v0.28 about -15..+12%, average -4%) (sweep keeps v0.28 absolute values, heart cost per run unchanged) so growth per hour of play stays within -15..0% of v0.28 // v0.15: f = cut on fragments/stones/diamonds (gold unchanged); fd(stage) = first-clear diamonds // run-reward scale (v0.13: boss diamonds, gold, fragments); first-clear rewards and key odds unchanged
 function bossRoll(st, rnd) { const d = Math.min(4, ((st - 1) / 10) | 0), f = rnd(); if (f < BOSS_KEY[d]) return { keys: 1 }; if (f < BOSS_KEY[d] + 0.15 * REW.k) return { dia: 1 + Math.floor(rnd() * 3) };
   return { gold: Math.round((20 + Math.floor(rnd() * 41)) * FG.stageMul(st).rew) }; }
 // sweep (v0.15): one cleared-stage win worth x X (gold, fragments, stones; boss rolls same odds, amounts x X; keys -> 1 stone). id-seeded RNG, once per id.
@@ -1731,6 +1740,24 @@ const T29 = { en: { sell: 'Sell', locked: "Can't move it right now", cool: 'Just
   ko: { sell: '판매', locked: '지금은 옮길 수 없어요', cool: '방금 불러들였어요 — 잠시 뒤에', up: '강화', free: '3장 중 고르기', p: '물리', m: '마법', s: '지원', t: '탱커', max: '최대', luckNone: '행운잎은 정예·보스를 잡으면 나와요', luckFail: '꽝… +10🌰', odds: '고급 45% · 희귀 30% · 영웅 10% · 꽝 15%', upHint: '이번 판에만 적용돼요', tier: ['', '고급', '희귀', '영웅'] } };
 const t29 = k => (T29[L] || T29.en)[k] || k;
 function redDot29(r) { cx.beginPath(); cx.arc(r.x + r.w - 6, r.y + 6, 7, 0, 7); cx.fillStyle = '#ff3b30'; cx.fill(); cx.strokeStyle = '#fff'; cx.lineWidth = 2; cx.stroke(); }
+
+// v0.29.2: one-tap merge (tap a unit -> '⬆ 합성' when a same unit/star partner exists) + home-slot markers in combat
+const MG29 = () => ({ x: W - 24 - 132, y: PANEL_Y - 24, w: 132, h: 50 });
+function mergePair29(ref) { const u = g.unitAt(ref); if (!u || u.star >= 3) return null; const same = (v) => v && v !== u && v.k === u.k && v.star === u.star;
+  const bi = g.board.findIndex(same), ni = g.bench.findIndex(same); let c = null;
+  if (ref.t === 'b') c = bi >= 0 ? { src: ref, dst: { t: 'p', i: bi } } : ni >= 0 ? { src: ref, dst: { t: 'b', i: ni } } : null;
+  else c = ni >= 0 ? { src: { t: 'b', i: ni }, dst: ref } : bi >= 0 ? { src: { t: 'p', i: bi }, dst: ref } : null;
+  if (!c) return null; let k; try { k = g.dropKind(c.src, c.dst); } catch (e) { k = null; } return k === 'merge' ? c : null; }
+function drawMerge29() { if (!tip || drag || !(g.phase === 'prep' || V29c())) return; const c = mergePair29(tip.ref); if (!c) return; const r = MG29();
+  cx.save(); cx.shadowColor = 'rgba(255,216,77,.9)'; cx.shadowBlur = 10 + 6 * Math.sin(clock * 6); btn(r, '⬆ ' + (L === 'ko' ? '합성' : 'Merge'), true, '#e0a31c', 18); cx.restore(); }
+function mergeTap29(p) { if (!tip || !(g.phase === 'prep' || V29c()) || !inR(MG29(), p.x, p.y)) return false; const c = mergePair29(tip.ref); if (!c) return false;
+  const k = g.drop(c.src, c.dst); if (k === 'merge') { sfx('merge'); const nr = c.dst.t === 'b' ? BR(c.dst.i) : cellRect(c.dst.i); pops.push({ x: nr.x + nr.w / 2, y: nr.y + 10, life: .7, max: .7, col: '#ffd84d', label: '★' + (g.unitAt(c.dst) || {}).star }); tip = g.unitAt(c.dst) ? { ref: c.dst } : null; } return true; }
+function drawSlots29() { const dragU = drag && drag.moved ? g.unitAt(drag.src) : null;
+  for (let i = 0; i < g.board.length; i++) { const r = cellRect(i), u = g.board[i], over = drag && drag.moved && drag.over && drag.over.t === 'p' && drag.over.i === i;
+    const canM = dragU && u && u !== dragU && u.k === dragU.k && u.star === dragU.star && u.star < 3;
+    if (!u && !dragU) continue; rr(r.x + 3, r.y + 3, r.w - 6, r.h - 6, 8); cx.fillStyle = over ? 'rgba(255,255,255,.28)' : 'rgba(255,255,240,.07)'; cx.fill();
+    cx.strokeStyle = canM ? '#ffd84d' : over ? '#ffffff' : 'rgba(255,255,240,.28)'; cx.lineWidth = canM ? 3 : over ? 2.5 : 1; cx.setLineDash(u || over ? [] : [4, 4]); cx.stroke(); cx.setLineDash([]);
+    if (u) { cx.save(); cx.globalAlpha = .35; sprite(u.k, r.cx, r.cy + 4, 30, { noShadow: 1 }); cx.restore(); txt('★'.repeat(u.star), r.cx, r.y + r.h - 6, 9, u.star >= 3 ? '#ffcf3a' : '#fff6dc', 'c', 900, 2); } } }
 function drawBtns29(prep) { const act = g.canAct(), anyUp = FG.FAMS.some(f => g.canUpFam(f));
   if (holdSum && clock >= holdSum.next) { holdSum.next = clock + 0.25; if (act && g.canDeliver() && !g.offer) { g.deliver(); pickAnim = 0; sfx('pouch'); } else holdSum = null; }
   btn(B29_UP, '⬆ ' + t29('up'), act, upOpen ? '#b5651d' : '#5b7fb0', 15); if (anyUp && !upOpen) redDot29(B29_UP);
@@ -1759,6 +1786,7 @@ function drawUp29() { const b = UP29_BOX; rr(b.x, b.y, b.w, b.h, 16); cx.fillSty
     txt(t29(f) + ' Lv' + L0, r.x + r.w / 2, r.y + 14, 14, '#fff', 'c', 900, 3); txt('+' + pct + '%' + (f === 't' ? ' HP' : f === 's' ? '' : ' ATK'), r.x + r.w / 2, r.y + 31, 11, '#ffe9c0', 'c', 800, 2);
     txt(mx ? t29('max') : '🌰' + g.famCost(f), r.x + r.w / 2, r.y + 47, 13, ok ? '#fff6c8' : '#d8ccb6', 'c', 800, 2); }); }
 function tap29(p, ev) { // true = handled
+  if (mergeTap29(p)) return true;
   if (upOpen) { for (let i = 0; i < 4; i++) if (inR(UP29(i), p.x, p.y)) { const f = FG.FAMS[i]; if (g.upFam(f)) { sfx('pouch'); const r = UP29(i); pops.push({ x: r.x + r.w / 2, y: r.y + 10, life: .6, max: .6, col: '#ffd84d', label: 'UP' }); } else say(g.fam[f] >= FG.CFG.famMax ? t29('max') : t('noGold'), 1); return true; }
     if (inR(UP29_BOX, p.x, p.y)) return true; upOpen = false; if (inR(B29_UP, p.x, p.y)) { sfx('tap'); return true; } }
   if (!g.canAct()) return false;
@@ -1910,7 +1938,7 @@ function draw(dt) {
       cx.strokeStyle = hl ? hc : 'rgba(255,255,240,.38)'; cx.lineWidth = hl ? 3 : 1.5; cx.setLineDash(u || hl ? [] : [4, 4]); cx.stroke(); cx.setLineDash([]);
     }
     cx.globalAlpha = .65 + .35 * Math.sin(clock * 4); txt('◀◀ ' + t('enemies'), 432, GY0 - 20, 12, '#ffdddd', 'r', 800, 3); cx.globalAlpha = 1;
-  }
+  } else if (V29c()) drawSlots29();
   // entities (sorted by screen depth)
   const ents = [];
   if (prep) { corpses = []; prevFoes = []; }
@@ -2035,7 +2063,7 @@ function draw(dt) {
   } }
   if (drag && drag.moved) { const u = g.unitAt(drag.src); sprite(VK(u.k, u.star), drag.x, drag.y - 10, 60, { alpha: .92, frame: Math.floor(clock * 8) }); stars(u.star, drag.x, drag.y - 46); if (drag.kind && drag.kind !== 'none') txt(drag.kind === 'locked' || drag.kind === 'cool' ? t29(drag.kind) : drag.kind === 'scrap' && V29() ? t29('sell') + ' +' + g.sellValue(u) + '🌰' : t(drag.kind), drag.x, drag.y - 64, 16, drag.kind === 'merge' ? '#ffd84d' : drag.kind === 'full' ? '#ff6b6b' : '#fff', 'c', 800, 4); if (drag.kind === 'merge' && u.star === FG.CFG.comboStar && mythIng18(u.k)) txt(L === 'ko' ? '⚠ ★3이 되면 신화 재료로 못 써요' : '⚠ ★3 can’t be a mythic ingredient', drag.x, drag.y - 84, 12, '#ff9a8a', 'c', 800, 3); }
   if (prep && (!g.offer || offerPeek)) drawIngBadges22();
-  if (tip && !drag) { const u = g.unitAt(tip.ref); if (u) drawTip(u); else tip = null; }
+  if (tip && !drag) { const u = g.unitAt(tip.ref); if (u) { drawTip(u); if (V29()) drawMerge29(); } else tip = null; }
   if (!prep && selA != null) { const a = g.allies.find(u => u.id === selA && !u.dead); if (a && a.ref) drawTip(a.ref); }
   if ((prep || V29c()) && !g.offer) { const n = g.combinable().length; btn(BTN_MYTH, '🔮 ' + t('myth'), true, n ? '#c0392b' : '#6d4c8f', 14); if (n) { cx.save(); cx.globalAlpha = .5 + .5 * Math.sin(clock * 6); cx.strokeStyle = '#ffd84d'; cx.lineWidth = 3; rr(BTN_MYTH.x - 2, BTN_MYTH.y - 2, BTN_MYTH.w + 4, BTN_MYTH.h + 4, 16); cx.stroke(); cx.restore(); }
     if (g.boxes > 0) { btn(BTN_BOX, '🎁 ' + t('box') + (g.boxes > 1 ? ' ×' + g.boxes : ''), true, '#8e44ad', 14); cx.save(); cx.globalAlpha = .5 + .5 * Math.sin(clock * 5); cx.strokeStyle = '#e8c2ff'; cx.lineWidth = 3; rr(BTN_BOX.x - 2, BTN_BOX.y - 2, BTN_BOX.w + 4, BTN_BOX.h + 4, 16); cx.stroke(); cx.restore(); } }
@@ -2978,7 +3006,7 @@ function drawUltChip() { const k = curUlt(), r = B_ULT; rr(r.x, r.y, r.w, r.h, 1
   txt(ULTI[k] + ' ' + (L === 'ko' ? '수호 스킬: ' : 'Guardian: ') + ULTN[L][k] + (ULT_ORDER.filter(ultOpen).length > 1 ? '  ▶' : ''), r.x + r.w / 2, r.y + r.h / 2, L === 'ko' ? 14 : 13, '#eaf6ff', 'c', 800, 3); }
 function ultChipTap(p) { if (!inR(B_ULT, p.x, p.y)) return false; const open = ULT_ORDER.filter(ultOpen); if (open.length <= 1) { lobbyMsg = { msg: L === 'ko' ? '별똥비는 1-5, 숲의 포효는 2-1에 도달하면 열려요' : 'Starfall opens at 1-5, Forest Roar at 2-1', life: 2 }; sfx('tap'); return true; }
   const i = open.indexOf(curUlt()); lsSet('fg-ult', open[(i + 1) % open.length]); sfx('tap'); return true; }
-window.__fg.v29 = { get upOpen() { return upOpen; }, get toast() { return toast && toast.msg; }, get mythOpen() { return mythOpen; }, scale: () => scale, cell: i => cellRect(i), BR, R: { B29_BPS, TRASH, B29_UP, B29_GAM, B29_SUM, B29_FREE, B29_BAR, BTN_START, BTN_MYTH, UP: [0, 1, 2, 3].map(UP29) } }; // test hook (v0.29 real-tap UI test)
+window.__fg.v29 = { get upOpen() { return upOpen; }, get toast() { return toast && toast.msg; }, get mythOpen() { return mythOpen; }, scale: () => scale, cell: i => cellRect(i), BR, MG: () => MG29(), pair: r => mergePair29(r), get tip() { return tip; }, R: { B29_BPS, TRASH, B29_UP, B29_GAM, B29_SUM, B29_FREE, B29_BAR, BTN_START, BTN_MYTH, UP: [0, 1, 2, 3].map(UP29) } }; // test hook (v0.29 real-tap UI test)
 // ---------- v0.29 lobby: 5 bottom tabs (shop · heroes · battle · relics · challenge), 12 tappable controls on the battle tab, drawn icons, mailbox ----------
 // internal tab ids stay (0 heroes/squad, 1 battle, 2 relics) + 3 shop, 4 challenge; slots left->right: shop, heroes, battle, relics, challenge
 const LOB29 = true, TAB_SLOT = { 3: 0, 0: 1, 1: 2, 2: 3, 4: 4 }, TAB_ID = [3, 0, 1, 2, 4];
@@ -2988,7 +3016,7 @@ const L29_SWP = { x: 10, y: 598, w: 94, h: 76 }, L29_TRI = { x: 346, y: 598, w: 
 const L29_CC = i => ({ x: 24, y: 84 + i * 128, w: 402, h: 116 }), L29_SC = i => ({ x: 24, y: 84 + i * 128, w: 402, h: 116 });
 let sheet29 = false;
 // mailbox (no server): notices shipped in code; read/claimed state in fg-mail (synced with the cloud snapshot like every fg-* key); rewards via the econ grant ledger id 'mail:<id>'
-const MAIL29 = [{ id: 'v029', d: '2026-11-25', t: { ko: 'v0.29 업데이트 안내', en: 'v0.29 update' }, b: { ko: '이제 전투 중에도 영입·합성·판매·강화를 할 수 있어요.\n처치마다 도토리가 들어오고, 정예·보스는 행운잎을 줘요.\n판은 20웨이브(약 8~10분)로 길어졌고 판 보상도 그만큼 늘었어요.\n로비가 5칸 탭으로 바뀌었어요.', en: 'You can now recruit, merge, sell and boost during battle.\nEvery kill pays acorns; elites and bosses drop lucky leaves.\nRuns are 20 waves (about 8-10 min) and pay more.\nThe lobby now has 5 tabs.' }, r: null }];
+const MAIL29 = [{ id: 'v0292', d: '2026-11-26', t: { ko: 'v0.29.2 업데이트 안내', en: 'v0.29.2 update' }, b: { ko: '웨이브 안의 적이 끊기지 않고 계속 몰려와요.\n보스는 준비 시간 없이 바로 나와요.\n유닛을 누르고 [합성] 버튼 한 번이면 같은 유닛끼리 합쳐져요.\n전투 중에도 유닛 자리가 표시돼요.', en: 'Enemies now keep coming without gaps inside a wave.\nBosses appear right away, no prep timer.\nTap a unit, then [Merge] to combine it with its twin.\nUnit home slots stay visible during battle.' }, r: null }, { id: 'v029', d: '2026-11-25', t: { ko: 'v0.29 업데이트 안내', en: 'v0.29 update' }, b: { ko: '이제 전투 중에도 영입·합성·판매·강화를 할 수 있어요.\n처치마다 도토리가 들어오고, 정예·보스는 행운잎을 줘요.\n판은 20웨이브(약 6~8분)로 길어졌고 판 보상도 그만큼 늘었어요.\n로비가 5칸 탭으로 바뀌었어요.', en: 'You can now recruit, merge, sell and boost during battle.\nEvery kill pays acorns; elites and bosses drop lucky leaves.\nRuns are 20 waves (about 6-8 min) and pay more.\nThe lobby now has 5 tabs.' }, r: null }];
 function mailS() { let o = null; try { o = JSON.parse(localStorage.getItem('fg-mail') || 'null'); } catch (e) {} if (!o || typeof o !== 'object' || o.v !== 1) o = { v: 1, read: {}, got: {} }; if (!o.read || typeof o.read !== 'object') o.read = {}; if (!o.got || typeof o.got !== 'object') o.got = {}; return o; }
 function mailW(o) { try { localStorage.setItem('fg-mail', JSON.stringify(o)); } catch (e) {} try { if (window.CLOUD) CLOUD.markDirty(); } catch (e) {} }
 function mailUnread() { const o = mailS(); return MAIL29.some(m => !o.read[m.id] || (m.r && !o.got[m.id])); }
@@ -3081,7 +3109,7 @@ function drawShop29(now) { const ko = L === 'ko'; txt(ko ? '상점' : 'Shop', 24
   card29(L29_SC(1), 'bag', ko ? '다이아 상점' : 'Diamond store', ko ? '다이아·열쇠·신화석·패키지' : 'Diamonds · keys · mythic stones · packs', '#c0702a', true, false);
   card29(L29_SC(2), 'heart', ko ? '하트 충전' : 'Hearts', '❤ ' + ES.hearts + '/' + ECON.H_MAX + (ECON.nextHeartIn(ES, now) > 0 ? ' · ' + fmtMs(ECON.nextHeartIn(ES, now)) : ''), '#b0405a', true, false); }
 function drawMail29() { const ko = L === 'ko', o = mailS(); pFrame((ko ? '우편함' : 'Mailbox'));
-  if (mailSel) { const m = MAIL29.find(x => x.id === mailSel); if (!m) { mailSel = null; return; } txt(m.t[L] || m.t.en, 32, 130, 17, '#fff6dc', null, 900, 3); txt(m.d, 32, 154, 11, '#d9c7a6', null, 700); (m.b[L] || m.b.en).split('\n').forEach((ln, i) => wrapText(ln, 32, 190 + i * 44, W - 64, 13, '#f3ead6', 18, 700)); btn({ x: 32, y: 640, w: 140, h: 48 }, ko ? '◀ 목록' : '◀ List', true, '#7a8f4a', 15); return; }
+  if (mailSel) { const m = MAIL29.find(x => x.id === mailSel); if (!m) { mailSel = null; return; } txt(m.t[L] || m.t.en, 32, 130, 17, '#fff6dc', null, 900, 3); txt(m.d, 32, 154, 11, '#d9c7a6', null, 700); { let yy = 192; cx.font = '700 14px ' + FONT; for (const para of (m.b[L] || m.b.en).split('\n')) { let line = ''; for (const w of para.split(/(\s+)/)) { const tl = line + w; if (cx.measureText(tl).width > W - 72 && line.trim()) { txt(line.trim(), 36, yy, 14, '#f3ead6', null, 700, 2); yy += 22; line = w.trimStart(); } else line = tl; } if (line.trim()) { txt(line.trim(), 36, yy, 14, '#f3ead6', null, 700, 2); yy += 22; } yy += 12; } } /* v0.29.2 fix: body was centred on x=32 and cut off on the left */ btn({ x: 32, y: 640, w: 140, h: 48 }, ko ? '◀ 목록' : '◀ List', true, '#7a8f4a', 15); return; }
   MAIL29.forEach((m, i) => { const r = { x: 24, y: 120 + i * 76, w: 402, h: 68 }; rr(r.x, r.y, r.w, r.h, 12); cx.fillStyle = o.read[m.id] ? 'rgba(255,246,220,.06)' : 'rgba(255,246,220,.16)'; cx.fill(); lico('mail', r.x + 34, r.y + 34, 40); txt(m.t[L] || m.t.en, r.x + 66, r.y + 26, 15, '#fff6dc', null, 800, 2); txt(m.d, r.x + 66, r.y + 48, 11, '#d9c7a6', null, 700); if (!o.read[m.id]) dot29(r.x + r.w - 14, r.y + 14); });
   if (!MAIL29.length) txt(ko ? '우편이 없어요' : 'No mail', W / 2, 300, 15, '#d9c7a6', 'c', 800); }
 function mailTap29(p) { if (inR(PN_X, p.x, p.y)) { pnl = null; mailSel = null; sfx('tap'); return true; }
