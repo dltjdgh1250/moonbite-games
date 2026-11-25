@@ -176,7 +176,7 @@
 </script><script>// Forest Guardians — auto-battle defense simulation (deterministic, no DOM). v0.3 prototype (8 waves)
 (function (root) {
 'use strict';
-const VERSION = '0.29.0';
+const VERSION = '0.29.1';
 // ---------- PRNG: PCG32 ----------
 const M64 = (1n << 64n) - 1n, MUL = 6364136223846793005n;
 function PCG(seed, seq) { this.inc = ((BigInt(seq >>> 0) << 1n) | 1n) & M64; this.s = 0n; this.u32(); this.s = (this.s + BigInt(seed >>> 0) + (BigInt(seed >>> 0) << 32n)) & M64; this.u32(); }
@@ -987,7 +987,7 @@ const FAMS = ['p', 'm', 's', 't'];
 Object.assign(CFG, { v29: true, sumBase: 10, sumStep: 1, sumMax: 50, killGold: 5, eliteGold: 6, midGold: 30, bossGold: 60, clearGold: w => 15 + 2 * w,
   famMax: 20, famCost: L => Math.round(25 * (L + 1) * Math.pow(1.08, L)), famAtk: 0.035, famHeal: 0.035, famHp: 0.04,
   acornElite: 1, acornMid: 2, acornBoss: 3, gambleOdds: [0.45, 0.30, 0.10, 0.15], gambleFail: 10, sellT: [8, 16, 32, 64], sellS: [0, 1, 2.5, 6], sellCap: 0.6,
-  rel29: 0.85, autoPlace29: true, recallLock: 5, halfGap: 2, combatMax29: 80, hp29: [2.6, 2.8, 2.2, 2.0, 1.05], atk29: [1, 1, 1, 1, 2.1], bossChip: 6, bossChipMid: 4, hp29t: 0.033, passGold: 2, gap10_29: 1.4, potKill: true }); // calibrated 2026-11-25 (opt bot win within ±5 of v0.28 at 7 checkpoints, N=100)
+  rel29: 1, autoPlace29: true, bossPrep29: 8, recallLock: 5, halfGap: 2, combatMax29: 80, hp29: [0.85, 2.4, 1.85, 1.85, 0.58], atk29: [1, 1, 1, 1, 2.1], bossChip: 6, bossChipMid: 4, hp29t: -0.2, passGold: 2, passBoss29: 2, atk29t: 0.05, bossHp29late: 1, bossHp29: [0.45, 1, 1, 1, 1], gap10_29: 1.4, potKill: true }); // v0.29.1 calibrated 2026-11-25 on the HUMAN-speed bot (tools/sweep291.sh): ch1 >= 90%, others within +-5 of v0.28; stages 46-50: HP +20%/stage, attack -5%/stage
 G.isV29 = function () { return !!(CFG.v29 && this.w10 && !this.bc && !this.endless && !this.tutRun); };
 G.relK = function () { return this.isV29() && CFG.rel29 != null ? CFG.rel29 : 1; };
 // v0.29 auto-place: a summoned unit goes straight onto the field (front/back row by role) when there is room; otherwise the bench
@@ -1059,7 +1059,7 @@ G.onKill29 = G.onKill; G.onKill = function (v, src) { this.onKill29(v, src); if 
   if (v.boss) { if (D.mid || this.wave < CFG.maxWave) { g = CFG.midGold; ac = CFG.acornMid; } else { g = CFG.bossGold; ac = CFG.acornBoss; } } else if (v.elite) { g = CFG.eliteGold; ac = CFG.acornElite; } else if (!v.sum) g = CFG.killGold;
   g = Math.round(g * (1 + (CFG.potKill ? 0.02 * this.meta.rel.pot * this.relK() : 0))); this.gold += g; this.earned += g; this.acorn += ac; this.st29.killGold += g; this.st29.acorns += ac; };
 // two halves per logical wave (normal stages): the first half is WAVES20[2w-1] (previously skipped), the second is the old wave (WAVES20[2w] + boss)
-G.spawn29 = G.spawn; G.spawn = function (q) { this.spawn29(q); if (!this.isV29()) return; const e = this.enemies[this.enemies.length - 1]; if (e && !e.boss && !q.sum) { const sd = Math.min(4, stageMul(this.meta.stage).d), sj = (this.meta.stage - 1) % 10 + 1, hk = (Array.isArray(CFG.hp29) ? CFG.hp29[sd] : CFG.hp29) * (sd === 4 && sj > 5 ? 1 - CFG.hp29t * (sj - 5) : 1); e.hp = e.max = Math.max(1, Math.round(e.max * hk)); const ak = Array.isArray(CFG.atk29) ? CFG.atk29[sd] : CFG.atk29; if (ak && ak !== 1) e.atk *= ak; } };
+G.spawn29 = G.spawn; G.spawn = function (q) { this.spawn29(q); if (!this.isV29()) return; const e = this.enemies[this.enemies.length - 1]; if (e && e.boss && !q.sum && CFG.bossHp29) { const bd = Math.min(4, stageMul(this.meta.stage).d), bk = CFG.bossHp29[bd] * (bd === 4 && (this.meta.stage - 1) % 10 + 1 > 5 ? CFG.bossHp29late || 1 : 1); if (bk && bk !== 1) e.hp = e.max = Math.max(1, Math.round(e.max * bk)); } if (e && !e.boss && !q.sum) { const sd = Math.min(4, stageMul(this.meta.stage).d), sj = (this.meta.stage - 1) % 10 + 1, hk = (Array.isArray(CFG.hp29) ? CFG.hp29[sd] : CFG.hp29) * (sd === 4 && sj > 5 ? 1 - CFG.hp29t * (sj - 5) : 1); e.hp = e.max = Math.max(1, Math.round(e.max * hk)); const ak = (Array.isArray(CFG.atk29) ? CFG.atk29[sd] : CFG.atk29) * (sd === 4 && sj > 5 && CFG.atk29t ? 1 - CFG.atk29t * (sj - 5) : 1); if (ak && ak !== 1) e.atk *= ak; } };
 // boss fights keep paying: every 4% of a boss's HP knocked off drops chip gold (total ~ bossChip x 25 per boss)
 G.hurt29 = G.hurt; G.hurt = function (v, amt, src, ty) { const h0 = v && v.boss && v.team === 1 && !v.dead ? v.hp : null, d = this.hurt29(v, amt, src, ty);
   if (h0 != null && this.isV29() && v.max > 0) { const lost = Math.max(0, h0 - Math.max(0, v.hp)); v.gAcc = (v.gAcc || 0) + lost; const st = v.max * 0.04; let n = 0; while (v.gAcc >= st) { v.gAcc -= st; n++; } if (n) { const D = ENEMIES[v.k] || {}, g = n * Math.round((D.mid ? CFG.bossChipMid : CFG.bossChip) * (1 + (CFG.potKill ? 0.02 * this.meta.rel.pot * this.relK() : 0))); this.gold += g; this.earned += g; this.st29.killGold += g; } }
@@ -1074,9 +1074,15 @@ G.startWave29 = G.startWave; G.startWave = function () {
   for (const u of this.board.concat(this.bench)) if (u) { u.hpR = null; u.rcT = null; }
   if (this.isV29()) for (const a of this.allies) { const f = FAM_OF(a.k), m = this.famMul(f); if (m === 1) continue; if (f === 't') { a.max = Math.round(a.max * m); a.hp = a.max; } else { a.atk *= m; if (f === 's') a.healMul = (a.healMul || 1) * m; } }
   this.half2At = 0; this.dispW = this.isV29() ? 2 * this.wave : this.wave;
-  if (this.isV29() && WAVES20[2 * this.wave - 1]) { const [hm1, list1] = WAVES20[2 * this.wave - 1], h = this.halfQ(hm1, list1, 0), sh = h.end + CFG.halfGap; for (const q of this.queue) q.at += sh; this.queue = h.q.concat(this.queue); this.qEnd = (this.qEnd || 0) + sh; this.half2At = sh; this.dispW = 2 * this.wave - 1; }
+  if (this.isV29() && WAVES20[2 * this.wave - 1]) { const [hm1, list1] = WAVES20[2 * this.wave - 1], h = this.halfQ(hm1, list1, 0), sh = h.end + CFG.halfGap; for (const q of this.queue) q.at += sh; this.bpHold = false; this.bpT = -1; this.bpAdd = 0;
+    if (CFG.bossPrep29 > 0 && this.bossW && (this.wave === 5 || this.wave === 10)) { for (const q of this.queue) { q.h2 = 1; q.rel = q.at - sh; q.at = 1e9; } this.bpHold = true; } // v0.29.1: boss half waits for the first half to be cleared + an 8 s boss prep
+    this.queue = h.q.concat(this.queue); this.qEnd = (this.qEnd || 0) + sh; this.half2At = this.bpHold ? 1e9 : sh; this.dispW = 2 * this.wave - 1; }
   return r; };
-G.step29 = G.step; G.step = function (dt) { if (this.isV29() && this.phase === 'combat') { this.pgAcc = (this.pgAcc || 0) + CFG.passGold * dt; if (this.pgAcc >= 1) { const n = Math.floor(this.pgAcc); this.pgAcc -= n; this.gold += n; this.earned += n; this.st29.passGold = (this.st29.passGold || 0) + n; } if (this.half2At && this.t >= this.half2At && this.dispW !== 2 * this.wave) { this.dispW = 2 * this.wave; this.fx.push({ t: 'half', w: this.dispW, life: 1.4 }); } const cm = CFG.combatMax; CFG.combatMax = CFG.combatMax29; try { return this.step29(dt); } finally { CFG.combatMax = cm; } } return this.step29(dt); };
+G.step29 = G.step; G.step = function (dt) { if (this.isV29() && this.phase === 'combat') { this.pgAcc = (this.pgAcc || 0) + CFG.passGold * (this.bossW ? CFG.passBoss29 || 1 : 1) * dt; if (this.pgAcc >= 1) { const n = Math.floor(this.pgAcc); this.pgAcc -= n; this.gold += n; this.earned += n; this.st29.passGold = (this.st29.passGold || 0) + n; } if (this.half2At && this.t >= this.half2At && this.dispW !== 2 * this.wave) { this.dispW = 2 * this.wave; this.fx.push({ t: 'half', w: this.dispW, life: 1.4 }); } if (this.bpHold) { this.bpAdd += dt; if (this.bpT < 0) { if (!this.queue.some(q => !q.h2) && !this.enemies.some(e => !e.dead && e.team === 1)) { this.bpT = CFG.bossPrep29; this.fx.push({ t: 'bprep', life: 1 }); } } else { this.bpT -= dt; if (this.bpT <= 0) this.releaseBoss(); } }
+  const cm = CFG.combatMax; CFG.combatMax = CFG.combatMax29 + (this.bpAdd || 0); try { return this.step29(dt); } finally { CFG.combatMax = cm; } } return this.step29(dt); };
+G.releaseBoss = function () { if (!this.bpHold) return; this.bpHold = false; this.bpT = -1; for (const q of this.queue) if (q.h2 && q.at >= 1e9) q.at = this.t + Math.max(0, q.rel); this.queue.sort((a, b) => a.at - b.at); this.half2At = this.t; };
+G.inBossPrep = function () { return !!(this.bpHold && this.bpT > 0); };
+G.skipBossPrep = function () { if (!this.inBossPrep()) return false; this.act29('bskip'); this.releaseBoss(); return true; };
 G.waveDone29 = G.waveDone; G.waveDone = function () { const v = this.isV29(), g0 = this.gold, e0 = this.earned; this.waveDone29(); if (!v || this.phase === 'over') return;
   const wg = Math.round((CFG.clearGold(2 * this.wave - 1) + CFG.clearGold(2 * this.wave)) * (1 + 0.02 * this.meta.rel.pot * this.relK())); this.gold = g0 + wg; this.earned = e0 + wg; this.freePick = 1; this.delivN = 0; };
 G.idle29 = function () { // 'nothing useful to do' (sell excluded): used by bots/telemetry
@@ -1367,7 +1373,7 @@ function canAnything(m) { return UNITS.some(k => canLevel(m, k)) || FG.RELICS.so
 // each boss kill rolls once: key (by difficulty) / diamonds 1-3 (15%) / stones 1-3 (30%) / gold 20-60 x m. mult scales amounts (keys too), never roll counts/odds.
 // First clear of a stage: gold 50+10s + 5 fragments (x1). First codex entry +10 stones (x1).
 function stageOf(m, res) { return Math.max(1, Math.min(FG.MAX_STAGE, (res.stage | 0) || ((res.diff | 0) * 10 + 1))); }
-const REW = { k: +((typeof process !== 'undefined' && process.env && process.env.REWK) || 0.94), f: +((typeof process !== 'undefined' && process.env && process.env.REWF) || 0.8), fd: d => 10 + d, rk29: 3.0 }; // rk29: v0.29 runs are ~2.5-3x longer -> played-run rewards x3.0 (tools/growth29.js: reward per minute vs v0.28 human -22..0%, opt -6..+30%) (sweep keeps v0.28 absolute values, heart cost per run unchanged) so growth per hour of play stays within -15..0% of v0.28 // v0.15: f = cut on fragments/stones/diamonds (gold unchanged); fd(stage) = first-clear diamonds // run-reward scale (v0.13: boss diamonds, gold, fragments); first-clear rewards and key odds unchanged
+const REW = { k: +((typeof process !== 'undefined' && process.env && process.env.REWK) || 0.94), f: +((typeof process !== 'undefined' && process.env && process.env.REWF) || 0.8), fd: d => 10 + d, rk29: 2.8 }; // rk29: v0.29 runs ~10 min -> played-run rewards x2.8 (v0.29.1, tools/growth29.js: human-bot reward per minute vs v0.28 about -15..+12%, average -4%) (sweep keeps v0.28 absolute values, heart cost per run unchanged) so growth per hour of play stays within -15..0% of v0.28 // v0.15: f = cut on fragments/stones/diamonds (gold unchanged); fd(stage) = first-clear diamonds // run-reward scale (v0.13: boss diamonds, gold, fragments); first-clear rewards and key odds unchanged
 function bossRoll(st, rnd) { const d = Math.min(4, ((st - 1) / 10) | 0), f = rnd(); if (f < BOSS_KEY[d]) return { keys: 1 }; if (f < BOSS_KEY[d] + 0.15 * REW.k) return { dia: 1 + Math.floor(rnd() * 3) };
   return { gold: Math.round((20 + Math.floor(rnd() * 41)) * FG.stageMul(st).rew) }; }
 // sweep (v0.15): one cleared-stage win worth x X (gold, fragments, stones; boss rolls same odds, amounts x X; keys -> 1 stone). id-seeded RNG, once per id.
@@ -1717,11 +1723,12 @@ function newGame(daily, endless) { isDaily = daily && !endless; const s = isDail
 function say(m, s) { toast = { msg: m, life: s || 1.8 }; }
 // ---------- v0.29: in-run controls usable during combat (summon / lucky / boost / free pick / sell) ----------
 const V29 = () => !!(g && g.isV29 && g.isV29()), V29c = () => V29() && g.phase === 'combat';
-const B29_UP = { x: 12, y: 734, w: 80, h: 54 }, B29_GAM = { x: 98, y: 734, w: 80, h: 54 }, B29_SUM = { x: 184, y: 734, w: 104, h: 54 }, B29_FREE = { x: 254, y: 64, w: 136, h: 36 }, B29_BAR = { x: 290, y: 604, w: 148, h: 46 };
+const B29_UP = { x: 12, y: 734, w: 80, h: 54 }, B29_GAM = { x: 98, y: 734, w: 80, h: 54 }, B29_SUM = { x: 184, y: 734, w: 104, h: 54 }, B29_FREE = { x: 252, y: 64, w: 160, h: 36 }, B29_BAR = { x: 290, y: 604, w: 148, h: 46 };
 const UP29 = i => ({ x: 12 + i * 107, y: 540, w: 101, h: 58 }), UP29_BOX = { x: 6, y: 510, w: 438, h: 94 };
+const B29_BPS = { x: 296, y: 262, w: 138, h: 58 }, B29_BPC = { x: 16, y: 180, w: 418, h: 150 };
 let upOpen = false, holdSum = null; // v0.29: press-and-hold the recruit button to keep recruiting (every 0.25 s after 0.4 s)
-const T29 = { en: { sell: 'Sell', locked: "Can't move it right now", cool: 'Just recalled — wait a moment', up: 'Boost', free: 'Free pick', p: 'Physical', m: 'Magic', s: 'Support', t: 'Tank', max: 'MAX', luckNone: 'Lucky leaves drop from elites & bosses', luckFail: 'No luck… +10🌰', odds: 'Advanced 45% · Rare 30% · Hero 10% · Miss 15%', upHint: 'Boosts this run only', tier: ['', 'Advanced', 'Rare', 'Hero'] },
-  ko: { sell: '판매', locked: '지금은 옮길 수 없어요', cool: '방금 불러들였어요 — 잠시 뒤에', up: '강화', free: '무료 뽑기', p: '물리', m: '마법', s: '지원', t: '탱커', max: '최대', luckNone: '행운잎은 정예·보스를 잡으면 나와요', luckFail: '꽝… +10🌰', odds: '고급 45% · 희귀 30% · 영웅 10% · 꽝 15%', upHint: '이번 판에만 적용돼요', tier: ['', '고급', '희귀', '영웅'] } };
+const T29 = { en: { sell: 'Sell', locked: "Can't move it right now", cool: 'Just recalled — wait a moment', up: 'Boost', free: 'Pick 1 of 3', p: 'Physical', m: 'Magic', s: 'Support', t: 'Tank', max: 'MAX', luckNone: 'Lucky leaves drop from elites & bosses', luckFail: 'No luck… +10🌰', odds: 'Advanced 45% · Rare 30% · Hero 10% · Miss 15%', upHint: 'Boosts this run only', tier: ['', 'Advanced', 'Rare', 'Hero'] },
+  ko: { sell: '판매', locked: '지금은 옮길 수 없어요', cool: '방금 불러들였어요 — 잠시 뒤에', up: '강화', free: '3장 중 고르기', p: '물리', m: '마법', s: '지원', t: '탱커', max: '최대', luckNone: '행운잎은 정예·보스를 잡으면 나와요', luckFail: '꽝… +10🌰', odds: '고급 45% · 희귀 30% · 영웅 10% · 꽝 15%', upHint: '이번 판에만 적용돼요', tier: ['', '고급', '희귀', '영웅'] } };
 const t29 = k => (T29[L] || T29.en)[k] || k;
 function redDot29(r) { cx.beginPath(); cx.arc(r.x + r.w - 6, r.y + 6, 7, 0, 7); cx.fillStyle = '#ff3b30'; cx.fill(); cx.strokeStyle = '#fff'; cx.lineWidth = 2; cx.stroke(); }
 function drawBtns29(prep) { const act = g.canAct(), anyUp = FG.FAMS.some(f => g.canUpFam(f));
@@ -1736,6 +1743,14 @@ function drawBar29() { const r = B29_BAR, rd = g.barReady(), on = g.barT > g.t, 
   if (on) { cx.save(); rr(r.x, r.y, r.w, r.h, 14); cx.clip(); cx.fillStyle = 'rgba(200,240,255,.35)'; cx.fillRect(r.x, r.y, r.w * Math.max(0, (g.barT - g.t) / FG.CFG.barDur), r.h); cx.restore(); }
   txt('🛡 ' + (ko ? '결계' : 'Barrier'), r.x + r.w / 2, r.y + 15, 15, '#fff', 'c', 900, 3);
   txt(on ? (ko ? '차단 중!' : 'Blocking!') : rd ? (warn ? (ko ? '지금 누르기!' : 'NOW!') : (ko ? '기술 예고 때' : 'On boss warning')) : (ko ? '사용함' : 'Used'), r.x + r.w / 2, r.y + 34, 11, warn ? '#fff3a0' : '#dbeeff', 'c', 800, 2); }
+function drawBP29() { if (!g.inBossPrep || !g.inBossPrep()) return; const r = B29_BPC, ko = L === 'ko', b = g.bossInfo(g.wave), k = b.k, sec = Math.ceil(g.bpT);
+  rr(r.x, r.y, r.w, r.h, 18); cx.fillStyle = 'rgba(60,12,10,.88)'; cx.fill(); cx.strokeStyle = '#ff8a6a'; cx.lineWidth = 3; cx.stroke();
+  txt('⚠ ' + (ko ? '보스 준비 ' : 'Boss in ') + sec + (ko ? '초' : 's'), r.x + 16, r.y + 24, 18, '#fff3c8', null, 900, 4);
+  cx.save(); rr(r.x + 12, r.y + 42, 96, 96, 14); cx.fillStyle = 'rgba(0,0,0,.3)'; cx.fill(); cx.restore(); sprite(k, r.x + 60, r.y + 84, 84, { face: 1, frame: Math.floor(clock * 6) });
+  txt((T[L].names && T[L].names[k]) || k, r.x + 120, r.y + 62, 17, '#fff', null, 900, 3);
+  const sk = (FG.BOSSDEF[k] && FG.BOSSDEF[k].sk || []).map(q => q[0]).find(q => K18[L] && K18[L][q]); txt(sk ? K18[L][sk][0] + ' · ' + K18[L][sk][1] : (ko ? '기술 예고 때 🛡 결계' : 'Barrier on its warning'), r.x + 120, r.y + 92, 11, '#ffd0b8', null, 700, 2);
+  txt(ko ? '지금 영입·합성·강화로 준비하세요' : 'Recruit, merge and boost now', r.x + 120, r.y + 120, 11, '#e8d6b0', null, 700, 2);
+  btn(B29_BPS, (ko ? '바로 시작 ▶' : 'Start now ▶'), true, '#c0392b', 15); }
 function drawFree29() { if (!g.canFreePick()) return; btn(B29_FREE, '🎁 ' + t29('free'), true, '#c0392b', 14); cx.save(); cx.globalAlpha = .5 + .5 * Math.sin(clock * 6); cx.strokeStyle = '#ffd84d'; cx.lineWidth = 3; rr(B29_FREE.x - 2, B29_FREE.y - 2, B29_FREE.w + 4, B29_FREE.h + 4, 16); cx.stroke(); cx.restore(); }
 function drawUp29() { const b = UP29_BOX; rr(b.x, b.y, b.w, b.h, 16); cx.fillStyle = 'rgba(40,24,10,.92)'; cx.fill(); cx.strokeStyle = '#ffd98a'; cx.lineWidth = 2; cx.stroke();
   txt(t29('upHint'), b.x + 12, b.y + 15, 12, '#e8d6b0', null, 800, 2);
@@ -1747,6 +1762,7 @@ function tap29(p, ev) { // true = handled
   if (upOpen) { for (let i = 0; i < 4; i++) if (inR(UP29(i), p.x, p.y)) { const f = FG.FAMS[i]; if (g.upFam(f)) { sfx('pouch'); const r = UP29(i); pops.push({ x: r.x + r.w / 2, y: r.y + 10, life: .6, max: .6, col: '#ffd84d', label: 'UP' }); } else say(g.fam[f] >= FG.CFG.famMax ? t29('max') : t('noGold'), 1); return true; }
     if (inR(UP29_BOX, p.x, p.y)) return true; upOpen = false; if (inR(B29_UP, p.x, p.y)) { sfx('tap'); return true; } }
   if (!g.canAct()) return false;
+  if (g.inBossPrep && g.inBossPrep() && !g.offer && inR(B29_BPS, p.x, p.y)) { g.skipBossPrep(); sfx('tap'); return true; }
   if (inR(B29_UP, p.x, p.y)) { upOpen = true; tip = null; sfx('tap'); return true; }
   if (inR(B29_GAM, p.x, p.y)) { if (g.acorn <= 0) { say(t29('luckNone') + ' · ' + t29('odds'), 2.6); return true; } if (!g.bench.some(b => !b)) { say(t('benchFull')); return true; }
     const s = g.gamble(); if (s === 'fail') { say(t29('luckFail') + '  (' + t29('odds') + ')', 2); sfx('tap'); } else if (s !== false) { const r = BR(s), tn = UNITS[g.bench[s].k].tier; pickAnim = 0; sfx('pouch'); pops.push({ x: r.x + r.w / 2, y: r.y + r.h / 2, life: .9, max: .9, col: TIER_COL[tn] || '#fff', label: t29('tier')[g.lastGam.t] || '' }); } return true; }
@@ -2023,7 +2039,7 @@ function draw(dt) {
   if (!prep && selA != null) { const a = g.allies.find(u => u.id === selA && !u.dead); if (a && a.ref) drawTip(a.ref); }
   if ((prep || V29c()) && !g.offer) { const n = g.combinable().length; btn(BTN_MYTH, '🔮 ' + t('myth'), true, n ? '#c0392b' : '#6d4c8f', 14); if (n) { cx.save(); cx.globalAlpha = .5 + .5 * Math.sin(clock * 6); cx.strokeStyle = '#ffd84d'; cx.lineWidth = 3; rr(BTN_MYTH.x - 2, BTN_MYTH.y - 2, BTN_MYTH.w + 4, BTN_MYTH.h + 4, 16); cx.stroke(); cx.restore(); }
     if (g.boxes > 0) { btn(BTN_BOX, '🎁 ' + t('box') + (g.boxes > 1 ? ' ×' + g.boxes : ''), true, '#8e44ad', 14); cx.save(); cx.globalAlpha = .5 + .5 * Math.sin(clock * 5); cx.strokeStyle = '#e8c2ff'; cx.lineWidth = 3; rr(BTN_BOX.x - 2, BTN_BOX.y - 2, BTN_BOX.w + 4, BTN_BOX.h + 4, 16); cx.stroke(); cx.restore(); } }
-  if (V29() && !g.offer) drawFree29(); if (mythOpen && (prep || V29c()) && !g.offer) drawMyth(); else mythOpen = false; if (upOpen && V29() && g.canAct() && !g.offer && !mythOpen) drawUp29(); else upOpen = false;
+  if (V29() && !g.offer) { drawFree29(); drawBP29(); } if (mythOpen && (prep || V29c()) && !g.offer) drawMyth(); else mythOpen = false; if (upOpen && V29() && g.canAct() && !g.offer && !mythOpen) drawUp29(); else upOpen = false;
   if (g.offer) drawOffer(dt);
   if (toast && !mythOpen) { toast.life -= dt; cx.globalAlpha = Math.min(1, toast.life * 2); rr(14, 92, W - 28, 44, 14); cx.fillStyle = 'rgba(60,35,15,.92)'; cx.fill(); cx.strokeStyle = '#ffd98a'; cx.lineWidth = 2; cx.stroke(); txt(toast.msg, W / 2, 114, toast.msg.length > 46 ? 13 : 15, '#fff6dc', 'c', 800); cx.globalAlpha = 1; if (toast.life <= 0) toast = null; }
   if (g.phase === 'bless') drawBless(dt); else blessT = 0;
@@ -2962,13 +2978,13 @@ function drawUltChip() { const k = curUlt(), r = B_ULT; rr(r.x, r.y, r.w, r.h, 1
   txt(ULTI[k] + ' ' + (L === 'ko' ? '수호 스킬: ' : 'Guardian: ') + ULTN[L][k] + (ULT_ORDER.filter(ultOpen).length > 1 ? '  ▶' : ''), r.x + r.w / 2, r.y + r.h / 2, L === 'ko' ? 14 : 13, '#eaf6ff', 'c', 800, 3); }
 function ultChipTap(p) { if (!inR(B_ULT, p.x, p.y)) return false; const open = ULT_ORDER.filter(ultOpen); if (open.length <= 1) { lobbyMsg = { msg: L === 'ko' ? '별똥비는 1-5, 숲의 포효는 2-1에 도달하면 열려요' : 'Starfall opens at 1-5, Forest Roar at 2-1', life: 2 }; sfx('tap'); return true; }
   const i = open.indexOf(curUlt()); lsSet('fg-ult', open[(i + 1) % open.length]); sfx('tap'); return true; }
-window.__fg.v29 = { get upOpen() { return upOpen; }, get toast() { return toast && toast.msg; }, get mythOpen() { return mythOpen; }, scale: () => scale, cell: i => cellRect(i), BR, R: { TRASH, B29_UP, B29_GAM, B29_SUM, B29_FREE, B29_BAR, BTN_START, BTN_MYTH, UP: [0, 1, 2, 3].map(UP29) } }; // test hook (v0.29 real-tap UI test)
+window.__fg.v29 = { get upOpen() { return upOpen; }, get toast() { return toast && toast.msg; }, get mythOpen() { return mythOpen; }, scale: () => scale, cell: i => cellRect(i), BR, R: { B29_BPS, TRASH, B29_UP, B29_GAM, B29_SUM, B29_FREE, B29_BAR, BTN_START, BTN_MYTH, UP: [0, 1, 2, 3].map(UP29) } }; // test hook (v0.29 real-tap UI test)
 // ---------- v0.29 lobby: 5 bottom tabs (shop · heroes · battle · relics · challenge), 12 tappable controls on the battle tab, drawn icons, mailbox ----------
 // internal tab ids stay (0 heroes/squad, 1 battle, 2 relics) + 3 shop, 4 challenge; slots left->right: shop, heroes, battle, relics, challenge
 const LOB29 = true, TAB_SLOT = { 3: 0, 0: 1, 1: 2, 2: 3, 4: 4 }, TAB_ID = [3, 0, 1, 2, 4];
-const L29_SET = { x: 4, y: 3, w: 58, h: 56 }, L29_SIDE = i => ({ x: 6, y: 72 + i * 74, w: 62, h: 68 }), L29_CARD = { x: 78, y: 104, w: 296, h: 252 }, L29_START = { x: 70, y: 590, w: 310, h: 92 };
+const L29_SET = { x: 4, y: 3, w: 58, h: 56 }, L29_SIDE = i => ({ x: 6, y: 72 + i * 74, w: 62, h: 68 }), L29_CARD = { x: 78, y: 104, w: 296, h: 252 }, L29_START = { x: 112, y: 590, w: 226, h: 92 };
 const L29_SH = { x: 12, y: 232, w: 426, h: 470 }, L29_SHX = { x: 376, y: 238, w: 56, h: 56 }, L29_CH = i => i ? { x: 334, y: 296, w: 56, h: 56 } : { x: 60, y: 296, w: 56, h: 56 }, L29_STG = j => ({ x: 30 + (j % 5) * 80, y: 368 + ((j / 5) | 0) * 68, w: 72, h: 60 });
-const L29_SWP = { x: 30, y: 512, w: 190, h: 64 }, L29_TRI = { x: 230, y: 512, w: 190, h: 64 }, L29_ULT = { x: 30, y: 590, w: 390, h: 56 };
+const L29_SWP = { x: 10, y: 598, w: 94, h: 76 }, L29_TRI = { x: 346, y: 598, w: 94, h: 76 }, L29_ULT = { x: 30, y: 520, w: 390, h: 60 }; // v0.29.1: sweep / 3x back beside the battle button
 const L29_CC = i => ({ x: 24, y: 84 + i * 128, w: 402, h: 116 }), L29_SC = i => ({ x: 24, y: 84 + i * 128, w: 402, h: 116 });
 let sheet29 = false;
 // mailbox (no server): notices shipped in code; read/claimed state in fg-mail (synced with the cloud snapshot like every fg-* key); rewards via the econ grant ledger id 'mail:<id>'
@@ -3032,9 +3048,12 @@ function drawBattle29(now) { const cur = MS ? MS.stage : 1, vd = (cur - 1) / 10 
   txt(ULTI[curUlt()] + ' ' + (ko ? '수호 스킬: ' : 'Guardian: ') + ULTN[L][curUlt()], W / 2 + 30, 378, 13, '#eaf6ff', 'c', 800, 3);
   const ks = ['quokka', 'fox', 'treant', 'firefly', 'rabbit']; ks.forEach((k, i) => { const x = 110 + i * 62, y = 520; shadow(x, y, 14); if (rigOk(k)) rigAt('t' + k, k, x, y, 54, 1, { walk: 1 }); else sprite(k, x, y - 26, 52); });
   cx.save(); cx.shadowColor = 'rgba(80,200,90,.65)'; cx.shadowBlur = 14 + 5 * Math.sin(clock * 3); btn(L29_START, '', true, '#3fae4a', 20); cx.restore();
-  lico('sword', L29_START.x + 52, L29_START.y + L29_START.h / 2, 50); txt((ko ? '전투 ' : 'Battle ') + FG.stageName(cur), L29_START.x + L29_START.w / 2 + 20, L29_START.y + 34, 26, '#fff', 'c', 900, 5);
-  if (ES) txt('❤ ' + ECON.runCost(ES, tripleOn) + (tripleOn ? '   3× ' + (ko ? '켜짐' : 'ON') : ''), L29_START.x + L29_START.w / 2 + 20, L29_START.y + 64, 14, tripleOn ? '#fff3a0' : '#ffe0e0', 'c', 800, 3);
-  if (sheet29) drawSheet29(now); }
+  lico('sword', L29_START.x + 34, L29_START.y + L29_START.h / 2, 40); txt((ko ? '전투 ' : 'Battle ') + FG.stageName(cur), L29_START.x + L29_START.w / 2 + 18, L29_START.y + 34, 23, '#fff', 'c', 900, 5);
+  if (ES) txt('❤ ' + ECON.runCost(ES, tripleOn) + (tripleOn ? '   3× ' + (ko ? '켜짐' : 'ON') : ''), L29_START.x + L29_START.w / 2 + 18, L29_START.y + 64, 13, tripleOn ? '#fff3a0' : '#ffe0e0', 'c', 800, 3);
+  drawSwTr29(now); if (sheet29) drawSheet29(now); }
+function drawSwTr29(now) { const ko = L === 'ko', cur = MS ? MS.stage : 1;
+  const cleared = MS && MS.stFirst[cur - 1] === '1', si = ES ? ECON.sweepInfo(ES, now) : null; btn(L29_SWP, '', !!(cleared && si && (si.left > 0 || si.ad > 0)), '#3d6fa8', 12); txt('⚡ ' + (ko ? '소탕' : 'Sweep'), L29_SWP.x + L29_SWP.w / 2, L29_SWP.y + 28, 16, '#fff', 'c', 900, 3); txt(si ? si.left + '/' + si.max + (si.ad > 0 && si.left === 0 ? ' ' + (PLAY ? '🎁' : '📺') : '') : '-', L29_SWP.x + L29_SWP.w / 2, L29_SWP.y + 52, 13, '#e0f0ff', 'c', 800, 2);
+  if (ES) { const can = ECON.canTriple(ES); btn(L29_TRI, '', can || tripleOn, tripleOn ? '#c0392b' : '#8a5a32', 12); txt((tripleOn ? '✔ ' : '') + (ko ? '3배' : '3×'), L29_TRI.x + L29_TRI.w / 2, L29_TRI.y + 28, 17, '#fff', 'c', 900, 3); txt(ES.triplePaid ? '❤' + ECON.runCost(ES, true) : (PLAY ? '🎁 ' : '📺 ') + (ES.tripleAd ? 0 : 1), L29_TRI.x + L29_TRI.w / 2, L29_TRI.y + 52, 13, '#fff6dc', 'c', 700, 2); } }
 function drawSheet29(now) { const ko = L === 'ko', cur = MS ? MS.stage : 1, vd = viewDiff == null ? ((cur - 1) / 10 | 0) : viewDiff, col = CH_COL[vd], S = L29_SH;
   cx.fillStyle = 'rgba(10,6,2,.6)'; cx.fillRect(0, 0, W, H); rr(S.x, S.y, S.w, S.h, 20); cx.fillStyle = 'rgba(52,30,12,.98)'; cx.fill(); cx.strokeStyle = col; cx.lineWidth = 3; cx.stroke();
   txt(ko ? '단계 선택' : 'Pick a stage', S.x + 18, S.y + 30, 18, '#fff6dc', null, 900, 3); btn(L29_SHX, '✕', true, '#7a8f4a', 18);
@@ -3043,16 +3062,12 @@ function drawSheet29(now) { const ko = L === 'ko', cur = MS ? MS.stage : 1, vd =
   for (let j = 0; j < 10; j++) { const st = vd * 10 + j + 1, r = L29_STG(j), open = !MS || META.unlocked(MS, st), dn = MS && MS.stFirst[st - 1] === '1', sel = st === cur;
     rr(r.x, r.y, r.w, r.h, 12); cx.fillStyle = sel ? col : dn ? '#f3c94a' : open ? 'rgba(246,231,200,.95)' : 'rgba(40,25,10,.7)'; cx.fill(); cx.strokeStyle = sel ? '#fff' : (j === 4 || j === 9) ? '#ff8a5a' : 'rgba(255,240,210,.6)'; cx.lineWidth = sel ? 3.5 : 2; cx.stroke();
     if (open) txt(FG.stageName(st), r.x + r.w / 2, r.y + r.h / 2 - (dn ? 6 : 0), 15, sel ? '#fff' : '#5a3a1e', 'c', 900, 0); else lico('lock', r.x + r.w / 2, r.y + r.h / 2, 28); if (dn) txt('★', r.x + r.w / 2, r.y + r.h - 12, 12, sel ? '#fff3a0' : '#a06a00', 'c', 900, 0); }
-  const cleared = MS && MS.stFirst[cur - 1] === '1', si = ES ? ECON.sweepInfo(ES, now) : null; btn(L29_SWP, '', !!(cleared && si && (si.left > 0 || si.ad > 0)), '#3d6fa8', 12); txt('⚡ ' + (ko ? '소탕 ' : 'Sweep ') + FG.stageName(cur), L29_SWP.x + L29_SWP.w / 2, L29_SWP.y + 22, 15, '#fff', 'c', 900, 3); txt(si ? si.left + '/' + si.max + (si.ad > 0 && si.left === 0 ? ' ' + (PLAY ? '🎁' : '📺') : '') : '-', L29_SWP.x + L29_SWP.w / 2, L29_SWP.y + 45, 12, '#e0f0ff', 'c', 800, 2);
-  if (ES) { const can = ECON.canTriple(ES); btn(L29_TRI, '', can || tripleOn, tripleOn ? '#c0392b' : '#8a5a32', 12); txt((tripleOn ? '✔ ' : '') + (ko ? '3배 보상' : '3× rewards'), L29_TRI.x + L29_TRI.w / 2, L29_TRI.y + 22, 15, '#fff', 'c', 900, 3); txt(ES.triplePaid ? '❤' + ECON.runCost(ES, true) : (PLAY ? '🎁 ' : '📺 ') + (ES.tripleAd ? 0 : 1), L29_TRI.x + L29_TRI.w / 2, L29_TRI.y + 45, 12, '#fff6dc', 'c', 700, 2); }
   const open = ULT_ORDER.filter(ultOpen); btn(L29_ULT, ULTI[curUlt()] + ' ' + (ko ? '수호 스킬: ' : 'Guardian: ') + ULTN[L][curUlt()] + (open.length > 1 ? '  ▶' : ''), true, '#2a4a78', 14);
-  txt(ko ? '단계를 고르고 ✕ 또는 바깥을 누르면 닫혀요' : 'Pick a stage, then tap ✕ or outside', W / 2, 676, 11, '#d9c7a6', 'c', 700, 0); }
+  txt(ko ? '단계를 고르고 ✕ 또는 바깥을 누르면 닫혀요' : 'Pick a stage, then tap ✕ or outside', W / 2, 640, 11, '#d9c7a6', 'c', 700, 0); }
 function sheetTap29(p) { const ko = L === 'ko', cur = MS.stage, vd = viewDiff == null ? ((cur - 1) / 10 | 0) : viewDiff;
   if (inR(L29_SHX, p.x, p.y) || !inR(L29_SH, p.x, p.y)) { sheet29 = false; viewDiff = null; sfx('tap'); return; }
   if (inR(L29_CH(0), p.x, p.y)) { if (vd > 0) { viewDiff = vd - 1; sfx('tap'); } return; } if (inR(L29_CH(1), p.x, p.y)) { if (vd < 4 && META.unlocked(MS, (vd + 1) * 10 + 1)) { viewDiff = vd + 1; sfx('tap'); } else lobbyMsg = { msg: lt('locked'), life: 1.6 }; return; }
   for (let j = 0; j < 10; j++) if (inR(L29_STG(j), p.x, p.y)) { const st = vd * 10 + j + 1; if (META.unlocked(MS, st)) { MS.stage = st; SAVEM(); sfx('tap'); } else lobbyMsg = { msg: lt('locked'), life: 1.6 }; return; }
-  if (inR(L29_SWP, p.x, p.y)) { sweepTap(); return; }
-  if (ES && inR(L29_TRI, p.x, p.y)) { if (tripleOn || ECON.canTriple(ES)) { tripleOn = !tripleOn; sfx('tap'); } else lobbyMsg = { msg: et('tripleInfo'), life: 1.6 }; return; }
   if (inR(L29_ULT, p.x, p.y)) { const open = ULT_ORDER.filter(ultOpen); if (open.length <= 1) lobbyMsg = { msg: ko ? '별똥비는 1-5, 숲의 포효는 2-1에 도달하면 열려요' : 'Starfall opens at 1-5, Forest Roar at 2-1', life: 2 }; else { const i = open.indexOf(curUlt()); lsSet('fg-ult', open[(i + 1) % open.length]); } sfx('tap'); return; } }
 function card29(r, ic, title, sub, col, on, dotOn) { btn(r, '', on, col, 12); if (ic === 'heart') cx.drawImage(icoCanvas('❤'), r.x + 24, r.y + r.h / 2 - 28, 56, 56); else lico(ic, r.x + 52, r.y + r.h / 2, 56); txt(title, r.x + 100, r.y + 40, 19, '#fff', null, 900, 3); txt(sub, r.x + 100, r.y + 74, 12, '#f3ead6', null, 700, 2); if (dotOn) dot29(r.x + r.w - 12, r.y + 12); }
 function drawChal29() { const ko = L === 'ko', I = ES ? ECON.bcInfo(ES) : { left: 0, max: 0 }, bo = bcOpen26(), io = !MS || !ES || ECON.infUnlocked(MS);
@@ -3093,13 +3108,15 @@ lobbyTap = function (p) {
     if (inR(L29_SIDE(3), p.x, p.y)) { pnl = 'mail29'; mailSel = null; sfx('tap'); return; }
     if (inR(L29_CARD, p.x, p.y)) { sheet29 = true; viewDiff = null; sfx('tap'); return; }
     if (inR(L29_START, p.x, p.y)) { tryStart(false); return; }
+    if (inR(L29_SWP, p.x, p.y)) { sweepTap(); return; }
+    if (ES && inR(L29_TRI, p.x, p.y)) { if (tripleOn || ECON.canTriple(ES)) { tripleOn = !tripleOn; sfx('tap'); } else lobbyMsg = { msg: et('tripleInfo'), life: 1.6 }; return; }
     return; }
   if (tab === 3) { if (!ES) return; if (inR(L29_SC(0), p.x, p.y)) { pnl = 'idle'; sfx('tap'); return; } if (inR(L29_SC(1), p.x, p.y)) { pnl = 'shop'; shopScroll = 0; sfx('tap'); return; } if (inR(L29_SC(2), p.x, p.y)) { pnl = 'hearts'; sfx('tap'); return; } return; }
   if (tab === 4) { if (inR(L29_CC(0), p.x, p.y)) { tryStart(true); return; } if (inR(L29_CC(1), p.x, p.y)) { bcTap26(); return; }
     if (inR(L29_CC(2), p.x, p.y)) { if (!MS || !ES || ECON.infUnlocked(MS)) tryStart(false, true); else lobbyMsg = { msg: L === 'ko' ? '어려움 3-10을 깨면 무한 모드가 열려요' : 'Clear Hard 3-10 to unlock Endless', life: 1.8 }; sfx('tap'); return; }
     if (inR(L29_CC(3), p.x, p.y)) { startStory('title'); sfx('tap'); return; } return; }
   lobbyTap28(p); };
-window.__fg.lob29 = { get tab() { return tab; }, set tab(v) { tab = v; }, get sheet() { return sheet29; }, get pnl() { return pnl; }, set pnl(v) { pnl = v; }, mailS, mailUnread, mailOpen, R: { SET: L29_SET, SIDE: [0, 1, 2, 3].map(L29_SIDE), CARD: L29_CARD, START: L29_START, TABS: TAB_ID.map(id => ({ id, r: TAB_R(id) })), SH: L29_SH, SHX: L29_SHX, CH: [0, 1].map(L29_CH), STG: Array.from({ length: 10 }, (_, j) => L29_STG(j)), SWP: L29_SWP, TRI: L29_TRI, ULT: L29_ULT, CC: [0, 1, 2, 3].map(L29_CC), SC: [0, 1, 2].map(L29_SC) } }; // test hook
+window.__fg.lob29 = { get tab() { return tab; }, set tab(v) { tab = v; }, get sheet() { return sheet29; }, get pnl() { return pnl; }, set pnl(v) { pnl = v; }, mailS, mailUnread, mailOpen, R: { SET: L29_SET, SIDE: [0, 1, 2, 3].map(L29_SIDE), CARD: L29_CARD, START: L29_START, SWB: L29_SWP, TRB: L29_TRI, TABS: TAB_ID.map(id => ({ id, r: TAB_R(id) })), SH: L29_SH, SHX: L29_SHX, CH: [0, 1].map(L29_CH), STG: Array.from({ length: 10 }, (_, j) => L29_STG(j)), ULT: L29_ULT, CC: [0, 1, 2, 3].map(L29_CC), SC: [0, 1, 2].map(L29_SC) } }; // test hook
 window.__fg.ms = () => MS; window.__fg.saveAll = () => saveAll(); // test hooks (cloud save e2e)
 window.__fg.aimErr = () => { const k0 = KY; let mx = 0; for (const ky of [KY_P, (KY_P + KY_C) / 2, KY_C]) { KY = ky; for (let x = 40; x <= 430; x += 30) for (let y = 270; y <= 590; y += 20) { const s2 = toSim({ x, y }); if (!s2) continue; mx = Math.max(mx, Math.hypot(SX(s2.x, s2.y) - x, SY(s2.x, s2.y) - y)); } } KY = k0; return mx; }; window.__fg.ky = () => KY; window.__fg.scr = e => [PX(e) + (e._ox || 0), PY(e) + (e._oy || 0)]; window.__fg.newGame = newGame; window.__fg.u = { get aim() { return aim; }, get ultTut() { return ultTut; }, set ultTut(v) { ultTut = v; }, get hsT() { return hsT; }, get speed() { return speed; }, set speed(v) { speed = v; }, get MS() { return MS; }, get ES() { return ES; }, save: () => saveAll(), get asT() { return asT; }, get asWait() { return asWait; }, get blocked() { return autoBlocked(); } };
 // ---------- v0.15: redesigned battle tab (chapter card, stage path, side icon menus, sweep) ----------
@@ -3178,7 +3195,7 @@ function autoBlocked() { return !autoStartOn || upOpen || !g || screen !== 'game
 // a completed board action (place / move / merge / recruit / sell / mythic) also restarts the 3 s count; plain taps do not
 let asSig = '';
 function asBoardSig() { const f = u => u ? u.k + u.star : '-'; return g.board.map(f).join(',') + '|' + g.bench.map(f).join(',') + '|' + g.gold + '|' + (g.boxes | 0); }
-function asDur() { return V29() && g.phase === 'prep' && (g.wave === 4 || g.wave === 9) ? 8 : 3; }
+function asDur() { return 3; } // v0.29.1: the 8 s boss prep now happens right before the boss half, in combat
 function autoStartFrame(dt) { if (autoBlocked()) { asT = asDur(); asWait = 0; asSig = ''; return; }
   const sg = asBoardSig(); if (sg !== asSig) { if (asSig) asT = asDur(); asSig = sg; }
   if (asWait > 0) { asWait -= dt; return; } asT -= dt; if (asT <= 0) { asT = asDur(); tip = null; if (g.startWave()) sfx('go'); } }
